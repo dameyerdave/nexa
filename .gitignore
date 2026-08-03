@@ -17,5 +17,9 @@ portal/.nitro
 portal/.cache
 portal/dist
 
+# Python
+__pycache__/
+*.pyc
+
 # OS
 .DS_Store

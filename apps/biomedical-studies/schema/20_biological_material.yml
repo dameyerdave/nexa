@@ -1,0 +1,69 @@
+# NOTE on privacy: this table intentionally has no name/DOB/MRN/address
+# columns. `external_id` is a de-identified, study-scoped research code
+# (e.g. "SUBJ-014") chosen by the study team - never a real-world
+# identifier. If you need to re-identify a subject, keep the mapping in a
+# separate, access-restricted system outside this schema. This keeps the
+# research database safe to broadly share within a study team without
+# itself being a store of personal data.
+
+tables:
+  - name: subject
+    description: >
+      A de-identified study participant/organism. Holds only the
+      research-relevant covariates, never direct identifiers.
+    mixins: [auditable]
+    columns:
+      - {name: id, type: uuid, primary_key: true, default: "gen_random_uuid()"}
+      - {name: study_id, type: uuid, nullable: false, references: "study.id"}
+      - name: external_id
+        type: text
+        nullable: false
+        description: "De-identified research code assigned by the study team, e.g. SUBJ-014."
+      - {name: species, type: text, nullable: false, description: "e.g. Homo sapiens, Mus musculus."}
+      - {name: sex, type: text}
+      - name: age_at_enrollment_years
+        type: numeric
+        description: "Age rather than date of birth, by design - see privacy note above."
+      - {name: cohort, type: text, description: "e.g. control, treatment-a."}
+    unique:
+      - [study_id, external_id]
+    indexes:
+      - [study_id]
+
+  - name: specimen
+    description: >
+      A physical biological sample (tissue, blood, extract, ...) collected
+      from a subject or, for QC/reference material, standalone. Aliquots
+      and extracts derived from another specimen link back via
+      parent_specimen_id, forming a specimen lineage tree.
+    mixins: [auditable]
+    columns:
+      - {name: id, type: uuid, primary_key: true, default: "gen_random_uuid()"}
+      - {name: study_id, type: uuid, nullable: false, references: "study.id"}
+      - name: subject_id
+        type: uuid
+        references: "subject.id"
+        description: "Null for QC/reference specimens not tied to a subject."
+      - name: parent_specimen_id
+        type: uuid
+        references: "self.id"
+        description: "Set when this specimen was derived from another (e.g. plasma aliquoted from whole blood)."
+      - name: specimen_type
+        type: text
+        nullable: false
+        description: "e.g. whole blood, tumor tissue, plasma. Consider tagging with an ontology_term (UBERON) via entity_term_tag for controlled vocabulary."
+      - {name: collection_date, type: timestamptz}
+      - {name: collection_site, type: text, description: "Anatomical site or collecting facility."}
+      - {name: storage_location, type: text, description: "Freezer / box / position."}
+      - {name: storage_condition, type: text, description: "e.g. -80C."}
+      - name: status
+        type: text
+        nullable: false
+        default: "'available'"
+        description: "available | depleted | discarded"
+    checks:
+      - "status in ('available', 'depleted', 'discarded')"
+    indexes:
+      - [study_id]
+      - [subject_id]
+      - [parent_specimen_id]

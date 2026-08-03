@@ -1,0 +1,49 @@
+# Reusable column bundles ("mixins"). Referencing one of these under a
+# table's `mixins:` key expands to the listed columns, in order, before the
+# table's own `columns:`. Defined once here so every table gets the same
+# provenance/versioning columns for free instead of repeating them.
+
+mixins:
+  # Every table that tracks its own data (i.e. everything except pure
+  # reference/lookup tables) should use this: who created/changed the row,
+  # and when. This is the minimum needed to answer "who entered this and
+  # when" for any record in an audit.
+  auditable:
+    columns:
+      - name: created_at
+        type: timestamptz
+        nullable: false
+        default: "now()"
+      - name: created_by
+        type: uuid
+        references: "auth.users.id"
+        description: "User who created this record."
+      - name: updated_at
+        type: timestamptz
+        nullable: false
+        default: "now()"
+      - name: updated_by
+        type: uuid
+        references: "auth.users.id"
+        description: "User who last modified this record."
+
+  # For things whose *definition* changes over time but whose past use must
+  # stay pinned to the exact definition that was in effect (protocols,
+  # analysis pipelines). Superseding a version never edits the old row -
+  # it inserts a new row and points the old one at it via superseded_by.
+  #
+  # Deliberately does NOT include the `version` column itself: protocols
+  # (lab SOPs) version as plain sequential integers (1, 2, 3 - "amendment
+  # number"), while pipelines (software) version as semver/git-tag text
+  # ("1.4.2", "2026.08.0"). Each table declares its own `version` column
+  # with the type that fits, alongside this mixin.
+  supersedable:
+    columns:
+      - name: is_current
+        type: boolean
+        nullable: false
+        default: true
+      - name: superseded_by
+        type: uuid
+        references: "self.id"
+        description: "Set once a newer version exists; points at that row's id."

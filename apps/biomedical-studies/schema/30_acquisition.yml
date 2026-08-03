@@ -1,0 +1,47 @@
+tables:
+  - name: run
+    description: >
+      A single data-acquisition event on an instrument: which specimen,
+      which protocol *version*, which instrument, and the parameters used.
+      This is the row every raw file must point back to, and the anchor of
+      the whole provenance chain from subject to result.
+    mixins: [auditable]
+    columns:
+      - {name: id, type: uuid, primary_key: true, default: "gen_random_uuid()"}
+      - {name: study_id, type: uuid, nullable: false, references: "study.id"}
+      - name: specimen_id
+        type: uuid
+        references: "specimen.id"
+        description: "Null for instrument QC/calibration runs not tied to a specimen."
+      - name: protocol_id
+        type: uuid
+        nullable: false
+        references: "protocol.id"
+        description: "The exact protocol version followed - required for every run."
+      - {name: instrument_id, type: uuid, references: "instrument.id"}
+      - name: performed_by
+        type: uuid
+        references: "auth.users.id"
+        description: "Operator, if they have a platform account."
+      - name: performed_by_name
+        type: text
+        description: "Free-text operator name, for operators without a platform account."
+      - {name: run_date, type: timestamptz, nullable: false}
+      - name: assay_type
+        type: text
+        nullable: false
+        description: "e.g. RNA-seq, mass-spec, flow-cytometry."
+      - name: parameters
+        type: jsonb
+        nullable: false
+        default: "'{}'::jsonb"
+        description: >
+          Instrument/assay settings that vary too much by assay_type to be
+          fixed columns (e.g. laser power, gradient, cycle count). Keep
+          anything you'll routinely filter/join on as a real column
+          instead - jsonb is for the long tail, not everything.
+      - {name: notes, type: text}
+    indexes:
+      - [study_id]
+      - [specimen_id]
+      - [protocol_id]

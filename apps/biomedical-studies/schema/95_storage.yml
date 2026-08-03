@@ -1,0 +1,30 @@
+# Provisions the two Supabase Storage buckets raw_file/derived_file rows
+# point into, and locks them down with the same study-membership rule used
+# everywhere else - so "can read the metadata row" and "can download the
+# actual bytes" stay consistent instead of drifting apart.
+#
+# This relies on an *application-enforced* path convention: the first path
+# segment of every object key must be the study's id, e.g.
+#   raw-instrument-data/<study_id>/<run_id>/<file_name>
+# Whatever writes raw_file.storage_path / derived_file.storage_path must
+# follow this convention - the database has no way to enforce it beyond
+# this policy trusting it.
+
+raw_sql:
+  - |
+    insert into storage.buckets (id, name, public)
+    values
+      ('raw-instrument-data', 'raw-instrument-data', false),
+      ('derived-data', 'derived-data', false)
+    on conflict (id) do nothing;
+
+    drop policy if exists "study_members_rw" on storage.objects;
+    create policy "study_members_rw" on storage.objects for all
+      using (
+        bucket_id in ('raw-instrument-data', 'derived-data')
+        and biomed.can_access_study((storage.foldername(name))[1]::uuid)
+      )
+      with check (
+        bucket_id in ('raw-instrument-data', 'derived-data')
+        and biomed.can_access_study((storage.foldername(name))[1]::uuid)
+      );

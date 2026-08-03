@@ -1,0 +1,75 @@
+# Row-level security. v1 scope is deliberately simple: any member of a
+# study (any role) can read and write that study's data - study_member.role
+# is captured for future fine-grained policies but not yet enforced
+# differently per role. Reference/shared tables (protocol, instrument,
+# pipeline, ontology_term) and downstream analysis tables (analysis,
+# derived_file) are not study-scoped in v1 and stay fully readable/writable
+# to any authenticated user (no RLS on them at all); see the app README for
+# how to narrow that further.
+#
+# Deliberately NOT granted to `anon`: this data requires at least a signed
+# in account to query at all, on top of whatever RLS then allows - defense
+# in depth rather than relying on RLS alone.
+
+raw_sql:
+  - |
+    grant usage on schema biomed to authenticated;
+    grant select, insert, update, delete on all tables in schema biomed to authenticated;
+    alter default privileges in schema biomed
+      grant select, insert, update, delete on tables to authenticated;
+
+functions:
+  - name: can_access_study
+    sql: |
+      create or replace function biomed.can_access_study(p_study_id uuid)
+      returns boolean
+      language sql
+      security definer
+      stable
+      set search_path = biomed, pg_temp
+      as $$
+        select exists (
+          select 1 from biomed.study_member m
+          where m.study_id = p_study_id
+            and m.user_id = auth.uid()
+        );
+      $$;
+
+  - name: can_access_study_via_run
+    sql: |
+      create or replace function biomed.can_access_study_via_run(p_run_id uuid)
+      returns boolean
+      language sql
+      security definer
+      stable
+      set search_path = biomed, pg_temp
+      as $$
+        select biomed.can_access_study(study_id)
+        from biomed.run
+        where id = p_run_id;
+      $$;
+
+policies:
+  - table: study
+    rules:
+      - {name: study_members_all, command: all, using: "biomed.can_access_study(id)"}
+
+  - table: study_member
+    rules:
+      - {name: study_members_all, command: all, using: "biomed.can_access_study(study_id)"}
+
+  - table: subject
+    rules:
+      - {name: study_members_all, command: all, using: "biomed.can_access_study(study_id)"}
+
+  - table: specimen
+    rules:
+      - {name: study_members_all, command: all, using: "biomed.can_access_study(study_id)"}
+
+  - table: run
+    rules:
+      - {name: study_members_all, command: all, using: "biomed.can_access_study(study_id)"}
+
+  - table: raw_file
+    rules:
+      - {name: study_members_all, command: all, using: "biomed.can_access_study_via_run(run_id)"}

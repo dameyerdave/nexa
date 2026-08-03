@@ -1,0 +1,109 @@
+tables:
+  - name: investigation
+    description: >
+      Top-level research project or grant umbrella that one or more studies
+      belong to.
+    mixins: [auditable]
+    columns:
+      - {name: id, type: uuid, primary_key: true, default: "gen_random_uuid()"}
+      - name: code
+        type: text
+        unique: true
+        nullable: false
+        description: "Short human code, e.g. INV-2026-CANCER."
+      - {name: title, type: text, nullable: false}
+      - {name: description, type: text}
+      - {name: pi_name, type: text, description: "Principal investigator."}
+      - {name: funding_source, type: text}
+      - {name: start_date, type: date}
+      - {name: end_date, type: date}
+    checks:
+      - "end_date is null or end_date >= start_date"
+
+  - name: study
+    description: >
+      A single defined study within an investigation: one protocol-driven
+      body of work with its own subjects/specimens and data. This is the
+      unit that access control (study_member) is scoped to.
+    mixins: [auditable]
+    columns:
+      - {name: id, type: uuid, primary_key: true, default: "gen_random_uuid()"}
+      - {name: investigation_id, type: uuid, nullable: false, references: "investigation.id"}
+      - name: code
+        type: text
+        unique: true
+        nullable: false
+        description: "Short human code, e.g. STUDY-2026-001."
+      - {name: title, type: text, nullable: false}
+      - {name: objective, type: text}
+      - {name: design_description, type: text, description: "Free-text summary of the study design."}
+      - name: ethics_approval_id
+        type: text
+        description: "IRB / ethics committee reference number, if human or animal subjects are involved."
+      - name: status
+        type: text
+        nullable: false
+        default: "'planned'"
+        description: "planned | active | completed | archived"
+    checks:
+      - "status in ('planned', 'active', 'completed', 'archived')"
+    indexes:
+      - [investigation_id]
+
+  - name: study_member
+    description: >
+      Who has access to a study, and at what level. This is the table
+      access-control policies check against (see 90_access_control.yml).
+    columns:
+      - {name: id, type: uuid, primary_key: true, default: "gen_random_uuid()"}
+      - {name: study_id, type: uuid, nullable: false, references: "study.id", on_delete: cascade}
+      - {name: user_id, type: uuid, nullable: false, references: "auth.users.id", on_delete: cascade}
+      - name: role
+        type: text
+        nullable: false
+        default: "'contributor'"
+        description: "owner | contributor | viewer. Only enforced as read/write today; see app README for the reduced v1 scope."
+      - {name: created_at, type: timestamptz, nullable: false, default: "now()"}
+    checks:
+      - "role in ('owner', 'contributor', 'viewer')"
+    unique:
+      - [study_id, user_id]
+
+  - name: protocol
+    description: >
+      A versioned, reusable method description (SOP) - e.g. an extraction
+      or acquisition protocol. Runs reference a specific protocol *version*
+      so that changing a protocol later never changes what a past run says
+      it followed.
+    mixins: [auditable, supersedable]
+    columns:
+      - {name: id, type: uuid, primary_key: true, default: "gen_random_uuid()"}
+      - name: code
+        type: text
+        nullable: false
+        description: "Stable identifier shared by all versions, e.g. PROT-RNA-EXTRACTION."
+      - name: version
+        type: integer
+        nullable: false
+        default: 1
+        description: "Sequential amendment number: 1, 2, 3, ..."
+      - {name: name, type: text, nullable: false}
+      - {name: description, type: text, description: "Full method text, or a summary if kept externally."}
+      - name: external_doi
+        type: text
+        description: "e.g. a registered protocols.io DOI, if the full method lives there."
+    unique:
+      - [code, version]
+
+  - name: instrument
+    description: "Physical equipment used to acquire raw data."
+    mixins: [auditable]
+    columns:
+      - {name: id, type: uuid, primary_key: true, default: "gen_random_uuid()"}
+      - {name: name, type: text, nullable: false}
+      - {name: manufacturer, type: text}
+      - {name: model, type: text}
+      - {name: serial_number, type: text, unique: true}
+      - {name: location, type: text}
+      - {name: calibration_date, type: date}
+      - {name: calibration_due, type: date}
