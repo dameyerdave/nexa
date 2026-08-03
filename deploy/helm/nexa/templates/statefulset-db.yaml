@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "nexa.fullname" . }}-db
+  labels:
+    {{- include "nexa.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "nexa.fullname" . }}-db
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "nexa.selectorLabels" (dict "component" "db") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nexa.selectorLabels" (dict "component" "db") | nindent 8 }}
+    spec:
+      containers:
+        - name: db
+          image: "{{ .Values.images.db.repository }}:{{ .Values.images.db.tag }}"
+          {{- include "nexa.envFrom" . | nindent 10 }}
+          env:
+            # Overrides the client-facing POSTGRES_HOST from the shared
+            # ConfigMap (a DNS name) with the unix socket path this
+            # container needs for itself - env: takes precedence over
+            # envFrom for the same key.
+            - name: POSTGRES_HOST
+              value: /var/run/postgresql
+            - name: PGPORT
+              valueFrom: { configMapKeyRef: { name: {{ include "nexa.fullname" . }}-config, key: POSTGRES_PORT } }
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: {{ include "nexa.fullname" . }}-secrets, key: POSTGRES_PASSWORD } }
+            - name: PGDATABASE
+              valueFrom: { configMapKeyRef: { name: {{ include "nexa.fullname" . }}-config, key: POSTGRES_DB } }
+            - name: JWT_EXP
+              valueFrom: { configMapKeyRef: { name: {{ include "nexa.fullname" . }}-config, key: JWT_EXPIRY } }
+          command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf", "-c", "log_min_messages=fatal"]
+          ports:
+            - containerPort: 5432
+              name: postgres
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "postgres", "-h", "localhost"] }
+            periodSeconds: 5
+          livenessProbe:
+            exec: { command: ["pg_isready", "-U", "postgres", "-h", "localhost"] }
+            periodSeconds: 10
+            initialDelaySeconds: 15
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data }
+            - { name: db-migrations, mountPath: /docker-entrypoint-initdb.d/migrations }
+            - { name: db-init-scripts, mountPath: /docker-entrypoint-initdb.d/init-scripts }
+          resources:
+            {{- toYaml .Values.resources.large | nindent 12 }}
+      volumes:
+        - name: db-migrations
+          configMap: { name: {{ include "nexa.fullname" . }}-db-migrations }
+        - name: db-init-scripts
+          configMap: { name: {{ include "nexa.fullname" . }}-db-init-scripts }
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.global.storageClassName }}
+        storageClassName: {{ .Values.global.storageClassName }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.db.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  # Deliberately unprefixed (unlike most other Services in this chart) -
+  # config.POSTGRES_HOST and every other service's DATABASE_URL-style env
+  # var hardcode "db" as the hostname, matching docker-compose.yml. One
+  # release per namespace is assumed - see deploy/helm/nexa/README.md.
+  name: db
+  labels:
+    {{- include "nexa.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  selector:
+    {{- include "nexa.selectorLabels" (dict "component" "db") | nindent 4 }}
+  ports:
+    - port: 5432
+      targetPort: 5432

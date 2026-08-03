@@ -1,0 +1,22 @@
+{{- $scheme := ternary "https" "http" (ne .Values.global.clusterIssuer "") -}}
+{{- $domain := .Values.global.domain -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nexa.fullname" . }}-config
+  labels:
+    {{- include "nexa.labels" . | nindent 4 }}
+data:
+  # Computed in-cluster addresses / public URLs - not user-editable via
+  # values.config, derived from global.domain so they always agree with
+  # the Ingress hosts in templates/ingress.yaml.
+  POSTGRES_HOST: db
+  SUPABASE_PUBLIC_URL: {{ printf "%s://api.%s" $scheme $domain | quote }}
+  API_EXTERNAL_URL: {{ printf "%s://api.%s/auth/v1" $scheme $domain | quote }}
+  SITE_URL: {{ printf "%s://%s" $scheme $domain | quote }}
+  ADDITIONAL_REDIRECT_URLS: {{ printf "%s://%s/auth/callback" $scheme $domain | quote }}
+  METABASE_PUBLIC_URL: {{ printf "%s://analytics.%s" $scheme $domain | quote }}
+
+  {{- range $k, $v := .Values.config }}
+  {{ $k }}: {{ $v | quote }}
+  {{- end }}

@@ -1,0 +1,18 @@
+# Shared between the storage and imgproxy Deployments (both mount this at
+# /var/lib/storage) - see persistence.storage.accessMode in values.yaml
+# for the multi-node caveat.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "nexa.fullname" . }}-storage
+  labels:
+    {{- include "nexa.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.storage.accessMode }}
+  {{- if .Values.global.storageClassName }}
+  storageClassName: {{ .Values.global.storageClassName }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.storage.size }}

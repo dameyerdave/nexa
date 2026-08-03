@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nexa.fullname" . }}-supavisor
+  labels:
+    {{- include "nexa.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount.supavisor }}
+  selector:
+    matchLabels:
+      {{- include "nexa.selectorLabels" (dict "component" "supavisor") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nexa.selectorLabels" (dict "component" "supavisor") | nindent 8 }}
+    spec:
+      containers:
+        - name: supavisor
+          image: "{{ .Values.images.supavisor.repository }}:{{ .Values.images.supavisor.tag }}"
+          command: ["/bin/sh", "-c", "/app/bin/migrate && /app/bin/supavisor eval \"$(cat /etc/pooler/pooler.exs)\" && /app/bin/server"]
+          {{- include "nexa.envFrom" . | nindent 10 }}
+          env:
+            - { name: PORT, value: "4000" }
+            - name: DATABASE_URL
+              value: "ecto://supabase_admin:$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/_supabase"
+            - { name: CLUSTER_POSTGRES, value: "true" }
+            - name: API_JWT_SECRET
+              valueFrom: { secretKeyRef: { name: {{ include "nexa.fullname" . }}-secrets, key: JWT_SECRET } }
+            - name: METRICS_JWT_SECRET
+              valueFrom: { secretKeyRef: { name: {{ include "nexa.fullname" . }}-secrets, key: JWT_SECRET } }
+            - { name: REGION, value: local }
+            - { name: ERL_AFLAGS, value: "-proto_dist inet_tcp" }
+            - { name: POOLER_POOL_MODE, value: transaction }
+            - name: DB_POOL_SIZE
+              valueFrom: { configMapKeyRef: { name: {{ include "nexa.fullname" . }}-config, key: POOLER_DB_POOL_SIZE } }
+          ports:
+            - { containerPort: 4000, name: metrics }
+            - { containerPort: 5432, name: session }
+            - { containerPort: 6543, name: transaction }
+          readinessProbe:
+            httpGet: { path: /api/health, port: 4000 }
+            periodSeconds: 10
+            initialDelaySeconds: 15
+          volumeMounts:
+            - { name: pooler-config, mountPath: /etc/pooler/pooler.exs, subPath: pooler.exs }
+          resources:
+            {{- toYaml .Values.resources.medium | nindent 12 }}
+      volumes:
+        - name: pooler-config
+          configMap: { name: {{ include "nexa.fullname" . }}-pooler }
+---
+# ClusterIP only - this is the pooled *client* connection port (session
+# mode 5432 / transaction mode 6543), separate from the internal db:5432
+# every other service connects to directly. Exposing it outside the
+# cluster (e.g. for `psql` from your laptop) needs a LoadBalancer/NodePort
+# Service or a TCP-mode Ingress, which is ingress-controller/cloud
+# specific and left for you to add if you need it.
+apiVersion: v1
+kind: Service
+metadata:
+  name: supavisor
+  labels:
+    {{- include "nexa.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "nexa.selectorLabels" (dict "component" "supavisor") | nindent 4 }}
+  ports:
+    - { name: metrics, port: 4000, targetPort: 4000 }
+    - { name: session, port: 5432, targetPort: 5432 }
+    - { name: transaction, port: 6543, targetPort: 6543 }

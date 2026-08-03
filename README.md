@@ -155,7 +155,18 @@ scripts/apply_dashboards.py Applies an apps/<app> YAML dashboard to Metabase
 volumes/                  Supabase self-hosting config (Kong routes, DB init SQL, ...)
 portal/                   Nuxt 3 portal app (Dockerfile included)
 apps/                     Config-package data model apps (schema + dashboards)
+deploy/                   Kubernetes: Helm chart + CI/CD (see deploy/README.md)
 ```
+
+## Deploying to Kubernetes
+
+For a Kubernetes deployment instead of (or alongside) `docker compose`,
+there's a Helm chart at [`deploy/helm/nexa`](./deploy/helm/nexa) and a
+GitHub Actions pipeline that builds the portal image and deploys it on
+every push to `main`. See [`deploy/README.md`](./deploy/README.md) for the
+full list of GitHub Actions secrets/variables to configure, and
+[`deploy/helm/nexa/README.md`](./deploy/helm/nexa/README.md) for how the
+chart itself is put together and its known limitations.
 
 ## Production notes
 

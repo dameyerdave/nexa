@@ -1,0 +1,118 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nexa.fullname" . }}-storage
+  labels:
+    {{- include "nexa.labels" . | nindent 4 }}
+spec:
+  # Keep at 1 unless persistence.storage.accessMode is ReadWriteMany - see
+  # values.yaml. Multiple replicas writing the file backend concurrently
+  # needs RWX, and even then storage-api doesn't coordinate writes itself.
+  replicas: {{ .Values.replicaCount.storage }}
+  selector:
+    matchLabels:
+      {{- include "nexa.selectorLabels" (dict "component" "storage") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nexa.selectorLabels" (dict "component" "storage") | nindent 8 }}
+    spec:
+      containers:
+        - name: storage
+          image: "{{ .Values.images.storage.repository }}:{{ .Values.images.storage.tag }}"
+          {{- include "nexa.envFrom" . | nindent 10 }}
+          env:
+            - name: SERVICE_KEY
+              valueFrom: { secretKeyRef: { name: {{ include "nexa.fullname" . }}-secrets, key: SERVICE_ROLE_KEY } }
+            - { name: POSTGREST_URL, value: "http://rest:3000" }
+            - name: AUTH_JWT_SECRET
+              valueFrom: { secretKeyRef: { name: {{ include "nexa.fullname" . }}-secrets, key: JWT_SECRET } }
+            - name: DATABASE_URL
+              value: "postgres://supabase_storage_admin:$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/$(POSTGRES_DB)"
+            - name: STORAGE_PUBLIC_URL
+              valueFrom: { configMapKeyRef: { name: {{ include "nexa.fullname" . }}-config, key: SUPABASE_PUBLIC_URL } }
+            - { name: REQUEST_ALLOW_X_FORWARDED_PATH, value: "true" }
+            - { name: FILE_SIZE_LIMIT, value: "52428800" }
+            - { name: STORAGE_BACKEND, value: file }
+            - { name: FILE_STORAGE_BACKEND_PATH, value: /var/lib/storage }
+            - name: TENANT_ID
+              valueFrom: { configMapKeyRef: { name: {{ include "nexa.fullname" . }}-config, key: STORAGE_TENANT_ID } }
+            - { name: ENABLE_IMAGE_TRANSFORMATION, value: "true" }
+            - { name: IMGPROXY_URL, value: "http://imgproxy:5001" }
+          ports:
+            - containerPort: 5000
+          readinessProbe:
+            httpGet: { path: /status, port: 5000 }
+            periodSeconds: 5
+            initialDelaySeconds: 5
+          volumeMounts:
+            - { name: storage-data, mountPath: /var/lib/storage }
+          resources:
+            {{- toYaml .Values.resources.medium | nindent 12 }}
+      volumes:
+        - name: storage-data
+          persistentVolumeClaim: { claimName: {{ include "nexa.fullname" . }}-storage }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: storage
+  labels:
+    {{- include "nexa.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "nexa.selectorLabels" (dict "component" "storage") | nindent 4 }}
+  ports:
+    - port: 5000
+      targetPort: 5000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nexa.fullname" . }}-imgproxy
+  labels:
+    {{- include "nexa.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount.imgproxy }}
+  selector:
+    matchLabels:
+      {{- include "nexa.selectorLabels" (dict "component" "imgproxy") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nexa.selectorLabels" (dict "component" "imgproxy") | nindent 8 }}
+    spec:
+      containers:
+        - name: imgproxy
+          image: "{{ .Values.images.imgproxy.repository }}:{{ .Values.images.imgproxy.tag }}"
+          {{- include "nexa.envFrom" . | nindent 10 }}
+          env:
+            - { name: IMGPROXY_BIND, value: ":5001" }
+            - { name: IMGPROXY_LOCAL_FILESYSTEM_ROOT, value: "/" }
+            - { name: IMGPROXY_USE_ETAG, value: "true" }
+            - { name: IMGPROXY_MAX_SRC_RESOLUTION, value: "16.8" }
+          ports:
+            - containerPort: 5001
+          readinessProbe:
+            exec: { command: ["imgproxy", "health"] }
+            periodSeconds: 5
+          volumeMounts:
+            - { name: storage-data, mountPath: /var/lib/storage }
+          resources:
+            {{- toYaml .Values.resources.small | nindent 12 }}
+      volumes:
+        - name: storage-data
+          persistentVolumeClaim: { claimName: {{ include "nexa.fullname" . }}-storage }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: imgproxy
+  labels:
+    {{- include "nexa.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "nexa.selectorLabels" (dict "component" "imgproxy") | nindent 4 }}
+  ports:
+    - port: 5001
+      targetPort: 5001

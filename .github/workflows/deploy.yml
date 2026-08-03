@@ -1,0 +1,101 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write   # push the portal image to GHCR - no separate registry secret needed
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/${{ github.repository_owner }}/nexa-portal
+
+jobs:
+  build-portal:
+    name: Build and push portal image
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: tag
+        run: echo "tag=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./portal
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
+            ${{ env.IMAGE }}:latest
+
+  deploy:
+    name: Deploy to Kubernetes
+    needs: build-portal
+    runs-on: ubuntu-latest
+    environment: production   # requires a manual approver if you protect this GitHub Environment
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p "$HOME/.kube"
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > "$HOME/.kube/config"
+          kubectl cluster-info
+
+      # Every secrets.* line below is a GitHub Actions secret -> a key in
+      # the Helm chart's values.secrets map (deploy/helm/nexa/values.yaml).
+      # See the "Required GitHub Actions secrets" section of the root
+      # README for what each one is and how to generate it.
+      - name: Write values-secrets.yaml
+        run: |
+          cat > values-secrets.yaml <<EOF
+          secrets:
+            POSTGRES_PASSWORD: "${{ secrets.POSTGRES_PASSWORD }}"
+            JWT_SECRET: "${{ secrets.JWT_SECRET }}"
+            ANON_KEY: "${{ secrets.ANON_KEY }}"
+            SERVICE_ROLE_KEY: "${{ secrets.SERVICE_ROLE_KEY }}"
+            SUPABASE_PUBLISHABLE_KEY: "${{ secrets.SUPABASE_PUBLISHABLE_KEY }}"
+            SUPABASE_SECRET_KEY: "${{ secrets.SUPABASE_SECRET_KEY }}"
+            JWT_KEYS: "${{ secrets.JWT_KEYS }}"
+            JWT_JWKS: "${{ secrets.JWT_JWKS }}"
+            ANON_KEY_ASYMMETRIC: "${{ secrets.ANON_KEY_ASYMMETRIC }}"
+            SERVICE_ROLE_KEY_ASYMMETRIC: "${{ secrets.SERVICE_ROLE_KEY_ASYMMETRIC }}"
+            DASHBOARD_PASSWORD: "${{ secrets.DASHBOARD_PASSWORD }}"
+            SECRET_KEY_BASE: "${{ secrets.SECRET_KEY_BASE }}"
+            REALTIME_DB_ENC_KEY: "${{ secrets.REALTIME_DB_ENC_KEY }}"
+            VAULT_ENC_KEY: "${{ secrets.VAULT_ENC_KEY }}"
+            PG_META_CRYPTO_KEY: "${{ secrets.PG_META_CRYPTO_KEY }}"
+            S3_PROTOCOL_ACCESS_KEY_ID: "${{ secrets.S3_PROTOCOL_ACCESS_KEY_ID }}"
+            S3_PROTOCOL_ACCESS_KEY_SECRET: "${{ secrets.S3_PROTOCOL_ACCESS_KEY_SECRET }}"
+            GOOGLE_SECRET: "${{ secrets.GOOGLE_SECRET }}"
+            SMTP_PASS: "${{ secrets.SMTP_PASS }}"
+            MB_DB_PASS: "${{ secrets.MB_DB_PASS }}"
+            METABASE_ADMIN_PASSWORD: "${{ secrets.METABASE_ADMIN_PASSWORD }}"
+            OPENAI_API_KEY: "${{ secrets.OPENAI_API_KEY }}"
+          EOF
+
+      - name: helm upgrade --install
+        run: |
+          helm upgrade --install nexa deploy/helm/nexa \
+            --namespace nexa --create-namespace \
+            -f values-secrets.yaml \
+            --set images.portal.repository=${{ env.IMAGE }} \
+            --set images.portal.tag=${{ needs.build-portal.outputs.tag }} \
+            --set global.domain="${{ vars.NEXA_DOMAIN }}" \
+            --set global.ingressClassName="${{ vars.NEXA_INGRESS_CLASS || 'nginx' }}" \
+            --set global.clusterIssuer="${{ vars.NEXA_CLUSTER_ISSUER }}" \
+            --wait --timeout 10m
+
+      - name: Remove the secrets file from the runner
+        if: always()
+        run: rm -f values-secrets.yaml

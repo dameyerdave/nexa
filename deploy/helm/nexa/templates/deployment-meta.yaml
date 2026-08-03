@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nexa.fullname" . }}-meta
+  labels:
+    {{- include "nexa.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount.meta }}
+  selector:
+    matchLabels:
+      {{- include "nexa.selectorLabels" (dict "component" "meta") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nexa.selectorLabels" (dict "component" "meta") | nindent 8 }}
+    spec:
+      containers:
+        - name: meta
+          image: "{{ .Values.images.meta.repository }}:{{ .Values.images.meta.tag }}"
+          {{- include "nexa.envFrom" . | nindent 10 }}
+          env:
+            - { name: PG_META_PORT, value: "8080" }
+            - name: PG_META_DB_HOST
+              valueFrom: { configMapKeyRef: { name: {{ include "nexa.fullname" . }}-config, key: POSTGRES_HOST } }
+            - name: PG_META_DB_PORT
+              valueFrom: { configMapKeyRef: { name: {{ include "nexa.fullname" . }}-config, key: POSTGRES_PORT } }
+            - name: PG_META_DB_NAME
+              valueFrom: { configMapKeyRef: { name: {{ include "nexa.fullname" . }}-config, key: POSTGRES_DB } }
+            - { name: PG_META_DB_USER, value: postgres }
+            - name: PG_META_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ include "nexa.fullname" . }}-secrets, key: POSTGRES_PASSWORD } }
+            - name: CRYPTO_KEY
+              valueFrom: { secretKeyRef: { name: {{ include "nexa.fullname" . }}-secrets, key: PG_META_CRYPTO_KEY } }
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            tcpSocket: { port: 8080 }
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources.small | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: meta
+  labels:
+    {{- include "nexa.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "nexa.selectorLabels" (dict "component" "meta") | nindent 4 }}
+  ports:
+    - port: 8080
+      targetPort: 8080
