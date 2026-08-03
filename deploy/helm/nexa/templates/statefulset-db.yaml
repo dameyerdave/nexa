@@ -26,7 +26,11 @@ spec:
       initContainers:
         - name: fix-data-ownership
           image: "{{ .Values.images.db.repository }}:{{ .Values.images.db.tag }}"
-          command: ["sh", "-c", "chown -R postgres:postgres /var/lib/postgresql/data"]
+          # chown alone doesn't fix mode - postgres also FATALs on a freshly
+          # provisioned volume's default (group/other-readable) permissions,
+          # demanding exactly 0700 or 0750. mkdir -p the PGDATA subdirectory
+          # itself so it exists (and gets chowned/chmoded) before initdb runs.
+          command: ["sh", "-c", "mkdir -p /var/lib/postgresql/data/pgdata && chown -R postgres:postgres /var/lib/postgresql/data && chmod -R 0700 /var/lib/postgresql/data"]
           volumeMounts:
             - { name: data, mountPath: /var/lib/postgresql/data }
       containers:
