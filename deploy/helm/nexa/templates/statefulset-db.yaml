@@ -15,12 +15,20 @@ spec:
       labels:
         {{- include "nexa.selectorLabels" (dict "component" "db") | nindent 8 }}
     spec:
-      # Without fsGroup, ownership of the PVC-backed data dir as seen by the
-      # postgres user (uid/gid 999 in this image) isn't guaranteed to stay
-      # consistent across remounts on every CSI driver - the entrypoint's
-      # initial chown then FATALs on a later restart with "wrong ownership".
+      # fsGroup alone only fixes group ownership, not the UID postgres
+      # actually checks - and unlike the plain postgres image, this image's
+      # entrypoint doesn't self-heal a UID mismatch (it just FATALs "wrong
+      # ownership"). The initContainer below chowns as the image's own
+      # `postgres` user so the UID always matches what the main container
+      # resolves at runtime.
       securityContext:
         fsGroup: 999
+      initContainers:
+        - name: fix-data-ownership
+          image: "{{ .Values.images.db.repository }}:{{ .Values.images.db.tag }}"
+          command: ["sh", "-c", "chown -R postgres:postgres /var/lib/postgresql/data"]
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data }
       containers:
         - name: db
           image: "{{ .Values.images.db.repository }}:{{ .Values.images.db.tag }}"
