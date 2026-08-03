@@ -24,6 +24,11 @@ on:
         required: false
         type: boolean
         default: false
+      clean_reinstall:
+        description: "Uninstall the release first (keeps PVCs/data) - use if pods are stuck on a stale spec that a normal upgrade won't roll"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -104,6 +109,11 @@ jobs:
             OPENAI_API_KEY: "${{ secrets.OPENAI_API_KEY }}"
             CLOUDFLARE_TUNNEL_TOKEN: "${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}"
           EOF
+
+      - name: Uninstall existing release (clean_reinstall)
+        if: github.event.inputs.clean_reinstall == 'true'
+        run: |
+          helm uninstall nexa --namespace nexa --wait --timeout 5m || true
 
       - name: helm upgrade --install
         run: |

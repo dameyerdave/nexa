@@ -25,6 +25,11 @@ spec:
               valueFrom: { secretKeyRef: { name: {{ include "nexa.fullname" . }}-secrets, key: MB_DB_PASS } }
             - name: POSTGRES_DB
               valueFrom: { configMapKeyRef: { name: {{ include "nexa.fullname" . }}-config, key: MB_DB_DBNAME } }
+            # A block-storage-provisioned PVC's root often has a pre-existing
+            # lost+found directory, which initdb refuses to initialize into
+            # ("directory exists but is not empty") - so it needs a
+            # subdirectory of the mount, not the mount root itself.
+            - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
           ports:
             - containerPort: 5432
               name: postgres

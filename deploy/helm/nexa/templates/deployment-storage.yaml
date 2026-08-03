@@ -9,6 +9,10 @@ spec:
   # values.yaml. Multiple replicas writing the file backend concurrently
   # needs RWX, and even then storage-api doesn't coordinate writes itself.
   replicas: {{ .Values.replicaCount.storage }}
+  # RollingUpdate would try to attach the RWO storage-data PVC to a new pod
+  # before the old one releases it - Recreate tears the old pod down first.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       {{- include "nexa.selectorLabels" (dict "component" "storage") | nindent 6 }}
@@ -74,6 +78,9 @@ metadata:
     {{- include "nexa.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount.imgproxy }}
+  # Same RWO-PVC-attach reasoning as the storage Deployment above.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       {{- include "nexa.selectorLabels" (dict "component" "imgproxy") | nindent 6 }}
