@@ -1,0 +1,17 @@
+{
+  "name": "nexa-portal",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.4",
+    "nuxt": "^3.14.0",
+    "vue": "^3.5.12",
+    "vue-router": "^4.4.5"
+  }
+}

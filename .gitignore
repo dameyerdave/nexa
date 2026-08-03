@@ -1,0 +1,18 @@
+# Environment
+.env
+.env.old
+
+# Supabase Postgres data / storage (runtime bind mounts)
+volumes/db/data
+volumes/storage
+
+# Nuxt / Node
+portal/node_modules
+portal/.nuxt
+portal/.output
+portal/.nitro
+portal/.cache
+portal/dist
+
+# OS
+.DS_Store
