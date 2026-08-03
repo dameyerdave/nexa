@@ -73,9 +73,31 @@ h1 {
   min-width: 320px;
 }
 
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.form input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--fg);
+  padding: 0.65rem 0.85rem;
+  font-size: 0.95rem;
+}
+
+.form input:focus {
+  outline: 1px solid var(--fg);
+}
+
+.primary-btn,
 .google-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.75rem;
   background: #fff;
   color: #1f1f1f;
@@ -87,6 +109,7 @@ h1 {
   cursor: pointer;
 }
 
+.primary-btn:disabled,
 .google-btn:disabled {
   opacity: 0.6;
   cursor: default;
@@ -105,6 +128,13 @@ h1 {
   color: #f87171;
   font-size: 0.875rem;
   margin: 0;
+}
+
+.info {
+  color: var(--muted);
+  font-size: 0.875rem;
+  margin: 0;
+  text-align: center;
 }
 
 .tiles {

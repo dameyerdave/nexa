@@ -16,8 +16,8 @@ configured entirely through a single `.env` file.
 
 ```
                     ┌─────────────┐
-   user ──────────▶ │   portal    │  Sign in with Google (Supabase Auth)
-                    │  (Nuxt 3)   │
+   user ──────────▶ │   portal    │  Sign in (Supabase Auth: email/password
+                    │  (Nuxt 3)   │  today, Google SSO ready to enable)
                     └──────┬──────┘
                            │ after sign-in, two tiles:
               ┌────────────┴────────────┐
@@ -42,16 +42,19 @@ configured entirely through a single `.env` file.
 ## Prerequisites
 
 * Docker and Docker Compose v2
-* A Google Cloud OAuth 2.0 client (see below)
 
 ## Quick start
 
 ```sh
 cp .env.example .env
 sh scripts/generate-keys.sh --update-env   # fills in all secrets/keys
-# then edit .env: set GOOGLE_CLIENT_ID / GOOGLE_SECRET (see next section)
 docker compose up -d
 ```
+
+The portal signs users in with **email + password** out of the box (new
+accounts are auto-confirmed, no SMTP required) - visit the portal, click
+"No account yet? Create one", and sign up. Google SSO is wired up and ready
+to enable whenever you want it (see below).
 
 Once healthy:
 
@@ -64,11 +67,12 @@ Once healthy:
 Change the published ports via `PORTAL_PORT`, `KONG_HTTP_PORT`, and
 `METABASE_PORT` in `.env`.
 
-## Google SSO setup
+## Google SSO setup (optional)
 
-Supabase Auth (GoTrue) is used as the identity provider for the portal, and
-its Google OAuth client is reused for Metabase's native Google Sign-In - so
-users authenticate with the same Google account for both destinations.
+The portal works today with plain email/password accounts. Enabling Google
+additionally lets Metabase reuse the same OAuth client for its native Google
+Sign-In, so users authenticate with the same Google account for both
+destinations.
 
 1. In [Google Cloud Console](https://console.cloud.google.com/apis/credentials),
    create an **OAuth 2.0 Client ID** of type **Web application**.
@@ -97,15 +101,16 @@ blocks (in the `auth` service) and matching commented variables in
 any provider you want to add. See the
 [Supabase social login docs](https://supabase.com/docs/guides/auth/social-login)
 and [enterprise SSO / SAML docs](https://supabase.com/docs/guides/auth/enterprise-sso/auth-sso-saml)
-for the full list and per-provider setup steps. To surface a new provider's
-button in the portal UI, add a call to
-`supabase.auth.signInWithOAuth({ provider: '<name>' })` next to the existing
-Google button in `portal/pages/login.vue`.
+for the full list and per-provider setup steps. `useAuth()`
+(`portal/composables/useAuth.ts`) already exposes `signInWithGoogle()`; wire
+a button to it (or to a new `signInWithOAuth('<provider>')` call) in
+`portal/pages/login.vue` to surface it in the UI.
 
 ### SSO model and its limits
 
 * **Portal -> Supabase Auth**: the portal itself is fully gated by a real
-  Supabase Auth session (Google OAuth via `@supabase/supabase-js`).
+  Supabase Auth session (email/password via `@supabase/supabase-js` today;
+  Google OAuth is implemented in `useAuth()` and ready to enable).
 * **Portal -> Metabase**: real SSO via a *shared identity provider*. Metabase
   (open source) doesn't support OIDC/SAML/JWT single sign-on - only Google
   Sign-In natively - so it's configured with the same Google OAuth client as

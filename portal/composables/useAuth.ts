@@ -33,10 +33,29 @@ export function useAuth() {
     if (error) throw error;
   }
 
+  async function signInWithPassword(email: string, password: string) {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+  }
+
+  async function signUpWithPassword(email: string, password: string) {
+    const { data, error } = await supabase.auth.signUp({ email, password });
+    if (error) throw error;
+    return { needsEmailConfirmation: !data.session };
+  }
+
   async function signOut() {
     await supabase.auth.signOut();
     session.value = null;
   }
 
-  return { session, ready, init, signInWithGoogle, signOut };
+  return {
+    session,
+    ready,
+    init,
+    signInWithGoogle,
+    signInWithPassword,
+    signUpWithPassword,
+    signOut,
+  };
 }
