@@ -127,18 +127,20 @@ a button to it (or to a new `signInWithOAuth('<provider>')` call) in
 
 ## Data model apps
 
-The actual Postgres schema (tables, relationships, RLS) is not hand-written
-SQL - it's defined as YAML "apps" under [`apps/`](./apps), each a
-self-contained config package (think Splunk app, but for a Supabase
-schema + eventually Metabase dashboards). See [`apps/README.md`](./apps/README.md)
-for the format, and [`apps/biomedical-studies`](./apps/biomedical-studies)
-for a full worked example (biomedical study/specimen/instrument-run
-metadata, with raw data in Supabase Storage and full provenance from
-subject to result).
+The actual Postgres schema (tables, relationships, RLS) and Metabase
+dashboards are not hand-built through the UI - they're defined as YAML
+"apps" under [`apps/`](./apps), each a self-contained config package
+(think Splunk app, but for a Supabase schema + Metabase dashboards). See
+[`apps/README.md`](./apps/README.md) for the format, and
+[`apps/biomedical-studies`](./apps/biomedical-studies) for a full worked
+example (biomedical study/specimen/instrument-run metadata, with raw data
+in Supabase Storage and full provenance from subject to result, plus a
+ready-made overview dashboard).
 
 ```sh
 python3 scripts/compile_schema.py apps/biomedical-studies   # YAML -> SQL
-sh scripts/apply_schema.sh apps/biomedical-studies           # apply to the running stack
+sh scripts/apply_schema.sh apps/biomedical-studies           # apply schema to the running stack
+python3 scripts/apply_dashboards.py apps/biomedical-studies  # apply dashboards to Metabase
 ```
 
 ## Repository layout
@@ -149,9 +151,10 @@ docker-compose.yml       Full stack definition
 scripts/generate-keys.sh  Generates JWT/DB/Metabase secrets into .env
 scripts/compile_schema.py Compiles an apps/<app> YAML schema into SQL migrations
 scripts/apply_schema.sh   Applies a compiled app's migrations to the running stack
+scripts/apply_dashboards.py Applies an apps/<app> YAML dashboard to Metabase
 volumes/                  Supabase self-hosting config (Kong routes, DB init SQL, ...)
 portal/                   Nuxt 3 portal app (Dockerfile included)
-apps/                     Config-package data model apps (schema + future dashboards)
+apps/                     Config-package data model apps (schema + dashboards)
 ```
 
 ## Production notes

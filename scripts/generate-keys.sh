@@ -65,6 +65,7 @@ s3_protocol_access_key_secret=$(gen_hex 32)
 postgres_password=$(gen_hex 16)
 dashboard_password=$(gen_hex 16)
 mb_db_pass=$(gen_hex 16)
+mb_admin_password=$(gen_hex 16)
 pooler_tenant_id=$(gen_hex 8)
 
 echo ""
@@ -83,6 +84,7 @@ echo ""
 echo "POSTGRES_PASSWORD=${postgres_password}"
 echo "DASHBOARD_PASSWORD=${dashboard_password}"
 echo "MB_DB_PASS=${mb_db_pass}"
+echo "METABASE_ADMIN_PASSWORD=${mb_admin_password}"
 echo "POOLER_TENANT_ID=${pooler_tenant_id}"
 echo ""
 
@@ -125,6 +127,7 @@ sed \
     -e "s|^POSTGRES_PASSWORD=.*$|POSTGRES_PASSWORD=${postgres_password}|" \
     -e "s|^DASHBOARD_PASSWORD=.*$|DASHBOARD_PASSWORD=${dashboard_password}|" \
     -e "s|^MB_DB_PASS=.*$|MB_DB_PASS=${mb_db_pass}|" \
+    -e "s|^METABASE_ADMIN_PASSWORD=.*$|METABASE_ADMIN_PASSWORD=${mb_admin_password}|" \
     -e "s|^POOLER_TENANT_ID=.*$|POOLER_TENANT_ID=${pooler_tenant_id}|" \
     .env
 

@@ -2,8 +2,8 @@
 
 An "app" here is what a Splunk app is to Splunk: a self-contained folder of
 *configuration* - not code - that adds a capability to the platform. Install
-one and you get a Postgres schema (tables, relationships, access rules) and,
-eventually, a set of Metabase dashboards, all defined in plain YAML.
+one and you get a Postgres schema (tables, relationships, access rules) and
+a set of Metabase dashboards, all defined in plain YAML.
 
 ```
 apps/
@@ -17,13 +17,15 @@ apps/
     migrations/              # generated SQL - committed, never hand-edited
       0001_10_something.sql
       ...
-    dashboards/               # (future) Metabase dashboards-as-code
+    dashboards/
+      overview.yml            # Metabase database/cards/dashboard, as YAML
     README.md                 # what this app's data model actually means
 ```
 
-Only `app.yml` and `schema/*.yml` are hand-written. `migrations/*.sql` is
-compiler output - see [`apps/biomedical-studies`](./biomedical-studies) for
-a complete real example.
+Only `app.yml`, `schema/*.yml`, and `dashboards/*.yml` are hand-written.
+`migrations/*.sql` is compiler output - see
+[`apps/biomedical-studies`](./biomedical-studies) for a complete real
+example of both.
 
 ## Workflow
 
@@ -37,6 +39,9 @@ sh scripts/apply_schema.sh apps/<app-id>
 # make the new schema visible over the REST API and in Studio's table editor:
 # add its schema_namespace to PGRST_DB_SCHEMAS in .env, then:
 docker compose up -d rest studio
+
+# after editing any dashboards/*.yml:
+python3 scripts/apply_dashboards.py apps/<app-id>
 ```
 
 Migrations are generated fresh each time (the `migrations/` directory is
@@ -153,6 +158,50 @@ raw_sql:
       grant select, insert, update, delete on tables to authenticated;
 ```
 
+## The dashboards DSL
+
+`dashboards/*.yml` is applied by `scripts/apply_dashboards.py` via
+Metabase's REST API - there's no Metabase import format to compile to, so
+this script *is* the compiler and the applier in one. On a brand new
+instance it also completes Metabase's first-run setup wizard, using
+`METABASE_ADMIN_*` from `.env`.
+
+```yaml
+database:
+  name: biomed          # Metabase connection name - created if missing
+  engine: postgres
+  schema: biomed         # which Postgres schema Metabase's browser/sync shows
+
+cards:
+  - name: "Active studies"
+    description: "Studies currently in progress."
+    display: scalar       # any Metabase display type: scalar, table, bar, line, ...
+    query: |
+      select count(*) as active_studies
+      from biomed.study
+      where status = 'active'
+    # visualization_settings: {}   # optional passthrough to Metabase
+
+dashboards:
+  - name: "Biomedical studies overview"
+    description: "..."
+    layout:
+      - {card: "Active studies", x: 0, y: 0, w: 6, h: 4}   # grid units
+```
+
+Cards are always native SQL questions, not the GUI query builder - that
+keeps a card fully expressed in one YAML field instead of needing
+Metabase's internal (and instance-specific) table/field ids. Connection
+credentials are never written in the YAML: `apply_dashboards.py` fills in
+host/port/user/password from `.env` (the Postgres container is always
+reached at `db:5432` from inside the Metabase container, regardless of
+what's published to the host).
+
+Every apply sends the *complete* desired state - cards are matched and
+updated by name, and a dashboard's whole card layout is replaced with
+what the YAML describes - so editing the YAML and re-running converges
+the dashboard to match rather than accumulating duplicates.
+
 ## What this doesn't do
 
 On purpose, to stay a small tool rather than a framework:
@@ -161,9 +210,9 @@ On purpose, to stay a small tool rather than a framework:
 - **No ALTER-based schema evolution.** Compiling only ever emits
   `CREATE ... IF NOT EXISTS`; changing an existing column's type/nullability
   on a live database needs a hand-written migration.
-- **No dashboards yet.** `dashboards/` is reserved for a future
-  Metabase-as-code layer (dashboard/question definitions in YAML, applied
-  via the Metabase API) - not built yet.
+- **Dashboards are cards + one grid layout, nothing fancier.** No tabs,
+  filters/parameters, or GUI (non-native) questions - add support if/when
+  an app actually needs one of those.
 - **No per-role write policies.** Where an app has a `role` column (e.g.
   `study_member.role`), it may not yet be enforced differently for
   `viewer` vs `contributor` - check the individual app's README for its

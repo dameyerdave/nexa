@@ -151,6 +151,22 @@ insert into biomed.entity_term_tag (entity_table, entity_id, ontology_term_id)
 values ('specimen', '<specimen.id>', '<ontology_term.id for UBERON:0000178 "blood">');
 ```
 
+## Dashboard
+
+`dashboards/overview.yml` defines a "Biomedical studies overview" Metabase
+dashboard: active study count, specimen/run volume, a pending-analysis
+backlog indicator, and a per-study rollup table - all native SQL against
+`biomed.*`, no manual clicking-through Metabase required. Apply it (and
+the schema first, if you haven't) with:
+
+```sh
+sh scripts/apply_schema.sh apps/biomedical-studies
+python3 scripts/apply_dashboards.py apps/biomedical-studies
+```
+
+then open Metabase and look for it under "Our analytics". Add more cards
+by editing the YAML and re-running - see `apps/README.md` for the format.
+
 ## Extending this
 
 - **Per-role write policies**: split each `study_members_all` (`FOR ALL`)
