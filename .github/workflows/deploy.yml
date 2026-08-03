@@ -29,6 +29,11 @@ on:
         required: false
         type: boolean
         default: false
+      wipe_pvcs:
+        description: "Also delete the db/metabase-db/storage PVCs (destroys all data) - only applies together with clean_reinstall"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -114,6 +119,12 @@ jobs:
         if: github.event.inputs.clean_reinstall == 'true'
         run: |
           helm uninstall nexa --namespace nexa --wait --timeout 5m || true
+
+      - name: Wipe PVCs (wipe_pvcs)
+        if: github.event.inputs.clean_reinstall == 'true' && github.event.inputs.wipe_pvcs == 'true'
+        run: |
+          kubectl delete pvc data-nexa-db-0 data-nexa-metabase-db-0 nexa-storage \
+            --namespace nexa --wait --timeout=2m --ignore-not-found
 
       - name: helm upgrade --install
         run: |

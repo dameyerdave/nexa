@@ -38,8 +38,12 @@ spec:
             tcpSocket: { port: 9000 }
             periodSeconds: 10
           volumeMounts:
-            - { name: functions-main, mountPath: /home/deno/functions/main }
-            - { name: functions-hello, mountPath: /home/deno/functions/hello }
+            # subPath mounts the ConfigMap key as a real file, not the usual
+            # ConfigMap-volume symlink-into-..data-dir - edge-runtime's
+            # function bundler doesn't follow that symlink and reports
+            # "Module not found" without it.
+            - { name: functions-main, mountPath: /home/deno/functions/main/index.ts, subPath: index.ts }
+            - { name: functions-hello, mountPath: /home/deno/functions/hello/index.ts, subPath: index.ts }
             - { name: deno-cache, mountPath: /root/.cache/deno }
           resources:
             {{- toYaml .Values.resources.small | nindent 12 }}
