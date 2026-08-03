@@ -15,6 +15,10 @@ spec:
       labels:
         {{- include "nexa.selectorLabels" (dict "component" "metabase-db") | nindent 8 }}
     spec:
+      # See the fsGroup note in statefulset-db.yaml - same reasoning applies
+      # here, even though this postgres:16-alpine image hasn't hit it yet.
+      securityContext:
+        fsGroup: 999
       containers:
         - name: metabase-db
           image: "{{ .Values.images.metabaseDb.repository }}:{{ .Values.images.metabaseDb.tag }}"

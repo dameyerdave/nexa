@@ -15,6 +15,12 @@ spec:
       labels:
         {{- include "nexa.selectorLabels" (dict "component" "db") | nindent 8 }}
     spec:
+      # Without fsGroup, ownership of the PVC-backed data dir as seen by the
+      # postgres user (uid/gid 999 in this image) isn't guaranteed to stay
+      # consistent across remounts on every CSI driver - the entrypoint's
+      # initial chown then FATALs on a later restart with "wrong ownership".
+      securityContext:
+        fsGroup: 999
       containers:
         - name: db
           image: "{{ .Values.images.db.repository }}:{{ .Values.images.db.tag }}"
