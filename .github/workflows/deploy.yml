@@ -120,6 +120,33 @@ jobs:
             --set cloudflared.enabled=${{ (github.event.inputs.cloudflared_enabled || vars.NEXA_CLOUDFLARED_ENABLED) == 'true' }} \
             --wait --timeout 10m
 
+      - name: Diagnostics (always runs, even on failure/timeout)
+        if: always()
+        run: |
+          echo "### Pods ###"
+          kubectl get pods -n nexa -o wide || true
+          echo
+          echo "### PVCs ###"
+          kubectl get pvc -n nexa -o wide || true
+          echo
+          echo "### StatefulSets / Deployments ###"
+          kubectl get statefulsets,deployments -n nexa -o wide || true
+          echo
+          echo "### StorageClasses ###"
+          kubectl get storageclass || true
+          echo
+          echo "### Events (sorted by time) ###"
+          kubectl get events -n nexa --sort-by=.lastTimestamp || true
+          echo
+          echo "### describe: non-Running/non-Ready pods ###"
+          for pod in $(kubectl get pods -n nexa --no-headers 2>/dev/null | awk '$2 !~ /^([0-9]+)\/\1$/ || $3 != "Running" {print $1}'); do
+            echo "--- describe pod/$pod ---"
+            kubectl describe pod "$pod" -n nexa || true
+            echo "--- logs pod/$pod (previous + current, truncated) ---"
+            kubectl logs "$pod" -n nexa --all-containers --tail=100 || true
+            kubectl logs "$pod" -n nexa --all-containers --tail=100 --previous || true
+          done
+
       - name: Remove the secrets file from the runner
         if: always()
         run: rm -f values-secrets.yaml
