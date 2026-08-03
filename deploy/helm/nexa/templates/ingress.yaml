@@ -1,3 +1,4 @@
+{{- if .Values.global.ingressEnabled }}
 {{- $domain := .Values.global.domain -}}
 {{- $tls := ne .Values.global.clusterIssuer "" -}}
 {{- $svcs := dict "portal" $domain "kong" (printf "api.%s" $domain) "metabase" (printf "analytics.%s" $domain) -}}
@@ -34,4 +35,5 @@ spec:
                   # own Service manifest for the exact port name/number.
                   number: {{ if eq $svc "kong" }}8000{{ else }}3000{{ end }}
 ---
+{{- end }}
 {{- end }}

@@ -7,15 +7,24 @@
 # one place, mirroring .env.example at the repo root.
 
 global:
-  # Base domain the ingress hosts are built from:
+  # Base domain the ingress/tunnel hosts are built from:
   #   portal    -> {{ domain }}
   #   kong/api  -> api.{{ domain }}
   #   metabase  -> analytics.{{ domain }}
   domain: nexa.example.com
+  # Set to false if you have no Ingress controller and are relying on
+  # cloudflared.enabled (Cloudflare Tunnel) instead - the computed public
+  # URLs in the ConfigMap still use `domain` above either way; only the
+  # Ingress *objects* are skipped.
+  ingressEnabled: true
   ingressClassName: nginx
   # Set to enable TLS via cert-manager (annotations + Ingress.spec.tls).
   # Leave empty to serve plain HTTP (fine for a first smoke test).
   clusterIssuer: ""
+  # Set when TLS is terminated somewhere this chart doesn't manage (e.g. at
+  # Cloudflare's edge via cloudflared.enabled) so the computed public URLs
+  # are still built as https:// even though clusterIssuer is empty.
+  tlsTerminatedExternally: false
   storageClassName: ""   # empty = cluster default
 
 images:
@@ -32,9 +41,14 @@ images:
   supavisor: { repository: supabase/supavisor, tag: "2.9.5" }
   metabaseDb: { repository: postgres, tag: "16-alpine" }
   metabase: { repository: metabase/metabase, tag: "v0.53.13" }
+  cloudflared: { repository: cloudflare/cloudflared, tag: "latest" }
   # Built and pushed by CI (.github/workflows/deploy.yml) - tag is set with
   # --set images.portal.tag=<git sha> at deploy time, not hand-edited here.
   portal: { repository: ghcr.io/OWNER/nexa-portal, tag: "latest" }
+
+cloudflared:
+  enabled: false
+  replicaCount: 1
 
 persistence:
   db: { size: 10Gi }
@@ -142,6 +156,9 @@ secrets:
   MB_DB_PASS: "changeme-metabase-db-password"
   METABASE_ADMIN_PASSWORD: "changeme-metabase-admin-password"
   OPENAI_API_KEY: ""
+  # Only needed when cloudflared.enabled is true - a token from a tunnel
+  # created in the Cloudflare Zero Trust dashboard (Networks > Tunnels).
+  CLOUDFLARE_TUNNEL_TOKEN: ""
 
 replicaCount:
   studio: 1

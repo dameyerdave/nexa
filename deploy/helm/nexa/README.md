@@ -33,6 +33,15 @@ what a given env var or setting does, that file (and the root
   LoadBalancer/NodePort Service or a TCP-mode Ingress, which is
   cloud/ingress-controller specific - add it yourself if you need direct
   external `psql` access.
+- **Ingress is one of two ways in - `cloudflared` is the other.** Set
+  `global.ingressEnabled: false` and `cloudflared.enabled: true` to reach
+  the cluster via a Cloudflare Tunnel instead of an Ingress
+  controller/LoadBalancer (no public IP needed). Routing (which public
+  hostname maps to which in-cluster Service) is configured on Cloudflare's
+  side, not in this chart - see `deploy/README.md`'s "Cloudflare Tunnel"
+  section. Pair it with `global.tlsTerminatedExternally: true` so the
+  computed public URLs (`SITE_URL`, `SUPABASE_PUBLIC_URL`, ...) still come
+  out as `https://` even with no `clusterIssuer` set.
 - **No apps/ schema or dashboards are applied by this chart.** Once the
   stack is up, run `scripts/apply_schema.sh` / `scripts/apply_dashboards.py`
   against it the same way you would locally (see the root README) - they

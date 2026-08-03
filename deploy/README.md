@@ -73,6 +73,7 @@ secret below (**do not** pass `--update-env`, that writes to a local
 | `GOOGLE_SECRET` | no | only if enabling Google SSO - see the root README |
 | `SMTP_PASS` | no | only if configuring real SMTP for email flows |
 | `OPENAI_API_KEY` | no | only to enable Studio's AI Assistant |
+| `CLOUDFLARE_TUNNEL_TOKEN` | no | only if using `cloudflared` instead of/alongside Ingress (see below) - the token from a tunnel created in the Cloudflare Zero Trust dashboard (Networks -> Tunnels -> your tunnel -> "Docker" install command has it embedded after `--token`) |
 
 A secret left unset in GitHub resolves to an empty string in the workflow
 (`${{ secrets.FOO }}` is `""` when `FOO` doesn't exist) - fine for the
@@ -91,6 +92,37 @@ need to be secrets.
 | `NEXA_DOMAIN` | Base domain - portal at this host, Kong at `api.<domain>`, Metabase at `analytics.<domain>` | none, must be set |
 | `NEXA_INGRESS_CLASS` | Your ingress controller's `ingressClassName` | `nginx` |
 | `NEXA_CLUSTER_ISSUER` | A cert-manager `ClusterIssuer` name, for TLS | none (serves plain HTTP) |
+| `NEXA_INGRESS_ENABLED` | Set `false` if you have no Ingress controller (e.g. relying on `cloudflared` instead) | `true` |
+| `NEXA_TLS_TERMINATED_EXTERNALLY` | Set `true` when TLS is terminated somewhere this chart doesn't manage (e.g. Cloudflare's edge) so the computed public URLs still use `https://` | `false` |
+| `NEXA_CLOUDFLARED_ENABLED` | Set `true` to deploy the Cloudflare Tunnel client | `false` |
+
+These four also exist as **inputs on the "Run workflow" manual-dispatch
+button** (Actions -> Deploy -> Run workflow), which override the repo
+variable of the same purpose for that one run - handy for a one-off
+deploy without changing the variable permanently.
+
+### Cloudflare Tunnel instead of an Ingress controller
+
+If your cluster has no public IP / Ingress controller, `cloudflared` (an
+outbound-only tunnel client) is a good alternative - no LoadBalancer or
+open inbound ports needed:
+
+1. In the Cloudflare Zero Trust dashboard: **Networks -> Tunnels -> Create
+   a tunnel**, choose the "Cloudflared" connector type, and give it a name.
+2. Copy the token from the install command it shows you (the string after
+   `--token`) into the `CLOUDFLARE_TUNNEL_TOKEN` GitHub secret.
+3. On the same screen (or **Public Hostname** tab afterwards), add a
+   public hostname for each service you want reachable, pointing at the
+   in-cluster Service DNS name over plain HTTP - e.g.:
+   - `nexa.yourdomain.com` -> `http://portal:3000`
+   - `api.nexa.yourdomain.com` -> `http://kong:8000`
+   - `analytics.nexa.yourdomain.com` -> `http://metabase:3000`
+
+   These are internal cluster DNS names, only reachable from inside the
+   cluster - that's expected, `cloudflared` is what bridges them out.
+4. Set `NEXA_CLOUDFLARED_ENABLED=true`, `NEXA_INGRESS_ENABLED=false`, and
+   `NEXA_TLS_TERMINATED_EXTERNALLY=true` (Cloudflare terminates TLS for
+   you) as repo variables, or pass them as inputs on a manual run.
 
 ### Optional: gate deploys behind manual approval
 

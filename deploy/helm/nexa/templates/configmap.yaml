@@ -1,4 +1,4 @@
-{{- $scheme := ternary "https" "http" (ne .Values.global.clusterIssuer "") -}}
+{{- $scheme := ternary "https" "http" (or (ne .Values.global.clusterIssuer "") .Values.global.tlsTerminatedExternally) -}}
 {{- $domain := .Values.global.domain -}}
 apiVersion: v1
 kind: ConfigMap

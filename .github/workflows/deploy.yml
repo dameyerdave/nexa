@@ -3,7 +3,27 @@ name: Deploy
 on:
   push:
     branches: [main]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      domain:
+        description: "Base domain (overrides the NEXA_DOMAIN repo variable for this run)"
+        required: false
+        type: string
+      ingress_enabled:
+        description: "Create Ingress objects (set false if using cloudflared instead)"
+        required: false
+        type: boolean
+        default: true
+      tls_terminated_externally:
+        description: "TLS is terminated outside this chart (e.g. Cloudflare) - public URLs use https://"
+        required: false
+        type: boolean
+        default: false
+      cloudflared_enabled:
+        description: "Deploy the Cloudflare Tunnel client"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -82,6 +102,7 @@ jobs:
             MB_DB_PASS: "${{ secrets.MB_DB_PASS }}"
             METABASE_ADMIN_PASSWORD: "${{ secrets.METABASE_ADMIN_PASSWORD }}"
             OPENAI_API_KEY: "${{ secrets.OPENAI_API_KEY }}"
+            CLOUDFLARE_TUNNEL_TOKEN: "${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}"
           EOF
 
       - name: helm upgrade --install
@@ -91,9 +112,12 @@ jobs:
             -f values-secrets.yaml \
             --set images.portal.repository=${{ env.IMAGE }} \
             --set images.portal.tag=${{ needs.build-portal.outputs.tag }} \
-            --set global.domain="${{ vars.NEXA_DOMAIN }}" \
+            --set global.domain="${{ github.event.inputs.domain || vars.NEXA_DOMAIN }}" \
+            --set global.ingressEnabled=${{ (github.event.inputs.ingress_enabled || vars.NEXA_INGRESS_ENABLED) != 'false' }} \
             --set global.ingressClassName="${{ vars.NEXA_INGRESS_CLASS || 'nginx' }}" \
             --set global.clusterIssuer="${{ vars.NEXA_CLUSTER_ISSUER }}" \
+            --set global.tlsTerminatedExternally=${{ (github.event.inputs.tls_terminated_externally || vars.NEXA_TLS_TERMINATED_EXTERNALLY) == 'true' }} \
+            --set cloudflared.enabled=${{ (github.event.inputs.cloudflared_enabled || vars.NEXA_CLOUDFLARED_ENABLED) == 'true' }} \
             --wait --timeout 10m
 
       - name: Remove the secrets file from the runner
