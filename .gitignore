@@ -2,6 +2,9 @@
 .env
 .env.old
 
+# Local Compose overrides (e.g. swapping in a locally-built image)
+docker-compose.override.yml
+
 # Supabase Postgres data / storage (runtime bind mounts)
 volumes/db/data
 volumes/storage
