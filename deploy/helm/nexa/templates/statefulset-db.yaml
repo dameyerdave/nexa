@@ -34,7 +34,12 @@ spec:
               valueFrom: { configMapKeyRef: { name: {{ include "nexa.fullname" . }}-config, key: POSTGRES_DB } }
             - name: JWT_EXP
               valueFrom: { configMapKeyRef: { name: {{ include "nexa.fullname" . }}-config, key: JWT_EXPIRY } }
-          command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf", "-c", "log_min_messages=fatal"]
+          # `args`, not `command`: the image's ENTRYPOINT must still run -
+          # it's what drops from root to the postgres user before exec'ing
+          # this. k8s `command` replaces ENTRYPOINT (Docker Compose's
+          # `command` only replaces CMD), so using `command` here made
+          # postgres launch directly as root and refuse to start.
+          args: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf", "-c", "log_min_messages=fatal"]
           ports:
             - containerPort: 5432
               name: postgres

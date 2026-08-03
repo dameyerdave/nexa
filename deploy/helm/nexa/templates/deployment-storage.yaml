@@ -82,6 +82,17 @@ spec:
       labels:
         {{- include "nexa.selectorLabels" (dict "component" "imgproxy") | nindent 8 }}
     spec:
+      # storage and imgproxy share one ReadWriteOnce PVC (mirroring the
+      # shared bind mount in docker-compose.yml) - RWO can only attach to
+      # one node at a time, so pin imgproxy to whatever node the storage
+      # pod is on to avoid a Multi-Attach error.
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  {{- include "nexa.selectorLabels" (dict "component" "storage") | nindent 18 }}
+              topologyKey: kubernetes.io/hostname
       containers:
         - name: imgproxy
           image: "{{ .Values.images.imgproxy.repository }}:{{ .Values.images.imgproxy.tag }}"

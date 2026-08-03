@@ -17,7 +17,10 @@ spec:
       containers:
         - name: functions
           image: "{{ .Values.images.functions.repository }}:{{ .Values.images.functions.tag }}"
-          command: ["start", "--main-service", "/home/deno/functions/main"]
+          # `args`, not `command`: the edge-runtime image's ENTRYPOINT must
+          # still run (k8s `command` replaces ENTRYPOINT, unlike Docker
+          # Compose's `command` which only replaces CMD).
+          args: ["start", "--main-service", "/home/deno/functions/main"]
           {{- include "nexa.envFrom" . | nindent 10 }}
           env:
             - { name: SUPABASE_URL, value: "http://kong:8000" }
