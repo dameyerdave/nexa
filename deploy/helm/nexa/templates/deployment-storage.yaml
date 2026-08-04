@@ -1,3 +1,15 @@
+# storage and imgproxy share one filesystem for uploaded files (imgproxy
+# reads what storage-api writes) - they run as two containers in a single
+# pod, sharing an emptyDir, rather than two Deployments sharing a
+# ReadWriteOnce PVC. That sidesteps RWO multi-attach entirely and needs no
+# PersistentVolumeClaim for this data at all - see the note in
+# deploy/helm/nexa/README.md on why this chart favors minimizing PVC count.
+#
+# Trade-off: emptyDir doesn't survive a pod reschedule, so uploaded files
+# are ephemeral here (docker-compose.yml still persists them to a bind
+# mount, since that has no equivalent constraint). To make this durable
+# again, replace the emptyDir below with a PVC (see git history for the
+# prior two-Deployment version) once cluster storage quota allows it.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -5,14 +17,9 @@ metadata:
   labels:
     {{- include "nexa.labels" . | nindent 4 }}
 spec:
-  # Keep at 1 unless persistence.storage.accessMode is ReadWriteMany - see
-  # values.yaml. Multiple replicas writing the file backend concurrently
-  # needs RWX, and even then storage-api doesn't coordinate writes itself.
+  # Keep at 1: emptyDir content is pod-local, and storage-api doesn't
+  # coordinate writes across replicas itself anyway.
   replicas: {{ .Values.replicaCount.storage }}
-  # RollingUpdate would try to attach the RWO storage-data PVC to a new pod
-  # before the old one releases it - Recreate tears the old pod down first.
-  strategy:
-    type: Recreate
   selector:
     matchLabels:
       {{- include "nexa.selectorLabels" (dict "component" "storage") | nindent 6 }}
@@ -42,7 +49,8 @@ spec:
             - name: TENANT_ID
               valueFrom: { configMapKeyRef: { name: {{ include "nexa.fullname" . }}-config, key: STORAGE_TENANT_ID } }
             - { name: ENABLE_IMAGE_TRANSFORMATION, value: "true" }
-            - { name: IMGPROXY_URL, value: "http://imgproxy:5001" }
+            # imgproxy is now a sidecar in this same pod.
+            - { name: IMGPROXY_URL, value: "http://localhost:5001" }
           ports:
             - containerPort: 5000
           readinessProbe:
@@ -53,54 +61,6 @@ spec:
             - { name: storage-data, mountPath: /var/lib/storage }
           resources:
             {{- toYaml .Values.resources.medium | nindent 12 }}
-      volumes:
-        - name: storage-data
-          persistentVolumeClaim: { claimName: {{ include "nexa.fullname" . }}-storage }
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: storage
-  labels:
-    {{- include "nexa.labels" . | nindent 4 }}
-spec:
-  selector:
-    {{- include "nexa.selectorLabels" (dict "component" "storage") | nindent 4 }}
-  ports:
-    - port: 5000
-      targetPort: 5000
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: {{ include "nexa.fullname" . }}-imgproxy
-  labels:
-    {{- include "nexa.labels" . | nindent 4 }}
-spec:
-  replicas: {{ .Values.replicaCount.imgproxy }}
-  # Same RWO-PVC-attach reasoning as the storage Deployment above.
-  strategy:
-    type: Recreate
-  selector:
-    matchLabels:
-      {{- include "nexa.selectorLabels" (dict "component" "imgproxy") | nindent 6 }}
-  template:
-    metadata:
-      labels:
-        {{- include "nexa.selectorLabels" (dict "component" "imgproxy") | nindent 8 }}
-    spec:
-      # storage and imgproxy share one ReadWriteOnce PVC (mirroring the
-      # shared bind mount in docker-compose.yml) - RWO can only attach to
-      # one node at a time, so pin imgproxy to whatever node the storage
-      # pod is on to avoid a Multi-Attach error.
-      affinity:
-        podAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
-                matchLabels:
-                  {{- include "nexa.selectorLabels" (dict "component" "storage") | nindent 18 }}
-              topologyKey: kubernetes.io/hostname
-      containers:
         - name: imgproxy
           image: "{{ .Values.images.imgproxy.repository }}:{{ .Values.images.imgproxy.tag }}"
           {{- include "nexa.envFrom" . | nindent 10 }}
@@ -120,7 +80,20 @@ spec:
             {{- toYaml .Values.resources.small | nindent 12 }}
       volumes:
         - name: storage-data
-          persistentVolumeClaim: { claimName: {{ include "nexa.fullname" . }}-storage }
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: storage
+  labels:
+    {{- include "nexa.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "nexa.selectorLabels" (dict "component" "storage") | nindent 4 }}
+  ports:
+    - port: 5000
+      targetPort: 5000
 ---
 apiVersion: v1
 kind: Service
@@ -129,8 +102,10 @@ metadata:
   labels:
     {{- include "nexa.labels" . | nindent 4 }}
 spec:
+  # Selects the same pod as the storage Service above - imgproxy runs as a
+  # sidecar container in it, not a separate Deployment.
   selector:
-    {{- include "nexa.selectorLabels" (dict "component" "imgproxy") | nindent 4 }}
+    {{- include "nexa.selectorLabels" (dict "component" "storage") | nindent 4 }}
   ports:
     - port: 5001
       targetPort: 5001

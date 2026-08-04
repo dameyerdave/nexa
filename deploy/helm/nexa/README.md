@@ -22,12 +22,15 @@ what a given env var or setting does, that file (and the root
   time - see the comment in `templates/configmap-kong.yaml`. This hasn't
   been verified against `realtime-js` client behavior, which may care
   about that hostname for tenant resolution.
-- **Storage is a single PersistentVolumeClaim**, mounted by both the
-  `storage` and `imgproxy` Deployments. `ReadWriteOnce` (the default) only
-  works if both pods land on the same node - fine for a single-node
-  cluster, but a real multi-node cluster needs an RWX-capable
-  `storageClassName` (NFS, Longhorn, EFS-CSI, ...). See
-  `values.persistence.storage`.
+- **Uploaded files use an `emptyDir`, not a PVC.** `storage` and `imgproxy`
+  run as two containers in one pod (imgproxy needs to read what storage-api
+  writes) sharing that `emptyDir` - deliberately, to keep this chart's total
+  PVC count to one (just `db`), since cloud block-storage volume quotas are
+  often tight. This means uploaded files don't survive a pod reschedule.
+  For durable storage, swap the `emptyDir` in
+  `templates/deployment-storage.yaml` for a PVC (`ReadWriteOnce` works
+  since both containers share a pod; use an RWX-capable `storageClassName`
+  instead if you split them back into separate Deployments).
 - **Supavisor's pooled Postgres ports (5432/6543) are ClusterIP-only.**
   Exposing raw Postgres wire protocol outside the cluster needs a
   LoadBalancer/NodePort Service or a TCP-mode Ingress, which is

@@ -50,13 +50,12 @@ cloudflared:
   replicaCount: 1
 
 persistence:
+  # The only PVC this chart provisions - kept to a minimum deliberately
+  # (cloud block-storage volume quotas are often tight). Uploaded files
+  # (storage/imgproxy) use an emptyDir instead of a PVC - see the note in
+  # templates/deployment-storage.yaml for the trade-off and how to make
+  # that durable again if you have PVC headroom to spare.
   db: { size: 10Gi }
-  # Mounted by both the storage and imgproxy pods. accessMode ReadWriteOnce
-  # is only safe if your cluster can schedule both pods on the same node
-  # (true for a single-node cluster, e.g. this chart's kind/k3d dev setup).
-  # For a real multi-node cluster, use an RWX-capable storageClassName
-  # (NFS, Longhorn, EFS-CSI, ...) and switch this to ReadWriteMany.
-  storage: { size: 20Gi, accessMode: ReadWriteOnce }
 
 resources:
   small: { requests: { cpu: 25m, memory: 64Mi }, limits: { memory: 256Mi } }
@@ -161,8 +160,7 @@ replicaCount:
   auth: 1
   rest: 2
   realtime: 1
-  storage: 1
-  imgproxy: 1
+  storage: 1   # also governs the imgproxy sidecar in the same pod
   meta: 1
   functions: 1
   supavisor: 1
