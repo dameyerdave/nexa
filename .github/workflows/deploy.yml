@@ -206,6 +206,16 @@ jobs:
             kubectl logs "$pod" -n nexa --all-containers --tail=100 || true
             kubectl logs "$pod" -n nexa --all-containers --tail=100 --previous || true
           done
+          echo
+          # nexa-db's Postgres init scripts only ever run once, against a
+          # truly empty PGDATA - if the container crashes partway through
+          # that first attempt and restarts, the retry sees a non-empty
+          # data dir and silently skips init forever, masking whatever the
+          # real error was. Capture its previous-container logs
+          # unconditionally (not just when still unhealthy) so that first
+          # attempt's output isn't lost once it recovers.
+          echo "### nexa-db-0 previous-container logs (unconditional) ###"
+          kubectl logs nexa-db-0 -n nexa --all-containers --tail=300 --previous || true
 
       - name: Remove the secrets file from the runner
         if: always()
