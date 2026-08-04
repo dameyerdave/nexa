@@ -101,7 +101,10 @@ config:
 
   FUNCTIONS_VERIFY_JWT: "false"
 
-  PGRST_DB_SCHEMAS: "public,graphql_public,biomed"
+  # Add an app's schema_namespace here (e.g. `biomed` for
+  # apps/biomedical-studies) only after applying it - see apps/README.md -
+  # a schema listed here that doesn't exist yet breaks PostgREST's startup.
+  PGRST_DB_SCHEMAS: "public,graphql_public"
   PGRST_DB_MAX_ROWS: "1000"
   PGRST_DB_EXTRA_SEARCH_PATH: public
 
