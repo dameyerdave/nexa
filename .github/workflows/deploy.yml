@@ -222,8 +222,8 @@ jobs:
           # real error was. Capture its previous-container logs
           # unconditionally (not just when still unhealthy) so that first
           # attempt's output isn't lost once it recovers.
-          echo "### nexa-db-0 db container previous-container logs (unconditional) ###"
-          kubectl logs nexa-db-0 -n nexa -c db --tail=300 --previous || true
+          echo "### nexa-db-0 db container previous-container logs (unconditional, untruncated) ###"
+          kubectl logs nexa-db-0 -n nexa -c db --previous || true
 
       - name: Remove the secrets file from the runner
         if: always()
