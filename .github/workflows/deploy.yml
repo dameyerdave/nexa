@@ -86,6 +86,41 @@ jobs:
           echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > "$HOME/.kube/config"
           kubectl cluster-info
 
+      # kubectl-visible storage state, cluster-wide (not just the nexa
+      # namespace) - so a Cinder "volume quota exceeded" error can be
+      # cross-checked against what Kubernetes itself still thinks exists.
+      # Only deletes PVs that are unambiguously safe: Released (already
+      # unbound from any PVC) with reclaim policy Delete, where the CSI
+      # driver's own delete-then-remove sequence has stalled - anything
+      # else is left alone so we don't orphan a volume with no PV pointer
+      # left to find it by later.
+      - name: Cluster-wide storage diagnostics + safe cleanup
+        run: |
+          echo "### StorageClasses ###"
+          kubectl get storageclass -o wide
+          echo
+          echo "### PersistentVolumes (all) ###"
+          kubectl get pv -o wide || true
+          echo
+          echo "### PersistentVolumeClaims (all namespaces) ###"
+          kubectl get pvc --all-namespaces -o wide || true
+          echo
+          stale_pvs=$(kubectl get pv -o json | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          for pv in data.get('items', []):
+              phase = pv['status'].get('phase')
+              policy = pv['spec'].get('persistentVolumeReclaimPolicy')
+              if phase == 'Released' and policy == 'Delete':
+                  print(pv['metadata']['name'])
+          ")
+          if [ -n "$stale_pvs" ]; then
+            echo "### Deleting stale Released/Delete-policy PVs ###"
+            echo "$stale_pvs" | xargs -r kubectl delete pv
+          else
+            echo "### No stale Released PVs found - nothing to clean up cluster-side ###"
+          fi
+
       # Every secrets.* line below is a GitHub Actions secret -> a key in
       # the Helm chart's values.secrets map (deploy/helm/nexa/values.yaml).
       # See the "Required GitHub Actions secrets" section of the root
