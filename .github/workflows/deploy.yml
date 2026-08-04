@@ -34,6 +34,10 @@ on:
         required: false
         type: boolean
         default: false
+      storage_class:
+        description: "StorageClass for PVCs (overrides the NEXA_STORAGE_CLASS repo variable) - empty uses the cluster default"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -139,6 +143,7 @@ jobs:
             --set global.clusterIssuer="${{ vars.NEXA_CLUSTER_ISSUER }}" \
             --set global.tlsTerminatedExternally=${{ (github.event.inputs.tls_terminated_externally || vars.NEXA_TLS_TERMINATED_EXTERNALLY) == 'true' }} \
             --set cloudflared.enabled=${{ (github.event.inputs.cloudflared_enabled || vars.NEXA_CLOUDFLARED_ENABLED) == 'true' }} \
+            --set global.storageClassName="${{ github.event.inputs.storage_class || vars.NEXA_STORAGE_CLASS }}" \
             --wait --timeout 10m
 
       - name: Diagnostics (always runs, even on failure/timeout)
