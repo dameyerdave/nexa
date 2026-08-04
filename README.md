@@ -33,10 +33,13 @@ configured entirely through a single `.env` file.
       │  -> storage   │         └───────┬───────┘
       └───────┬───────┘                 │
               ▼                         ▼
-        ┌───────────┐            ┌──────────────┐
-        │  supabase  │           │  metabase-db │
-        │  postgres  │           │  (app db)    │
-        └───────────┘            └──────────────┘
+              └────────────┬────────────┘
+                            ▼
+                    ┌───────────────┐
+                    │   supabase    │  metabase's own app data (dashboards,
+                    │   postgres    │  questions, users) lives here too, in
+                    │               │  its own `metabase` database - one
+                    └───────────────┘  Postgres instance total, no second db
 ```
 
 ## Prerequisites
@@ -178,5 +181,5 @@ chart itself is put together and its known limitations.
 * Configure real SMTP (`SMTP_HOST`/`SMTP_USER`/`SMTP_PASS`/...) if you want
   Supabase's email flows (password recovery, invites) to work; without it
   only OAuth sign-in (Google) works.
-* Back up `volumes/db/data` (Supabase Postgres) and the `metabase-db-data`
-  Docker volume (Metabase's app database).
+* Back up `volumes/db/data` (Supabase Postgres) - this now holds Metabase's
+  own app data too, in its `metabase` database.

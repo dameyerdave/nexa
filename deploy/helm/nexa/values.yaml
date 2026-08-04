@@ -39,7 +39,6 @@ images:
   functions: { repository: supabase/edge-runtime, tag: "v1.74.0" }
   db: { repository: supabase/postgres, tag: "17.6.1.136" }
   supavisor: { repository: supabase/supavisor, tag: "2.9.5" }
-  metabaseDb: { repository: postgres, tag: "16-alpine" }
   metabase: { repository: metabase/metabase, tag: "v0.53.13" }
   cloudflared: { repository: cloudflare/cloudflared, tag: "latest" }
   # Built and pushed by CI (.github/workflows/deploy.yml) - tag is set with
@@ -52,7 +51,6 @@ cloudflared:
 
 persistence:
   db: { size: 10Gi }
-  metabaseDb: { size: 5Gi }
   # Mounted by both the storage and imgproxy pods. accessMode ReadWriteOnce
   # is only safe if your cluster can schedule both pods on the same node
   # (true for a single-node cluster, e.g. this chart's kind/k3d dev setup).
@@ -114,8 +112,6 @@ config:
   DATA_MODEL_LABEL: "Data Model"
   DATA_ANALYTICS_LABEL: "Data Analytics"
 
-  MB_DB_DBNAME: metabase
-  MB_DB_USER: metabase
   METABASE_ADMIN_EMAIL: admin@example.com
   METABASE_ADMIN_FIRST_NAME: Admin
   METABASE_ADMIN_LAST_NAME: User
@@ -153,7 +149,6 @@ secrets:
   S3_PROTOCOL_ACCESS_KEY_SECRET: ""
   GOOGLE_SECRET: ""
   SMTP_PASS: ""
-  MB_DB_PASS: "changeme-metabase-db-password"
   METABASE_ADMIN_PASSWORD: "changeme-metabase-admin-password"
   OPENAI_API_KEY: ""
   # Only needed when cloudflared.enabled is true - a token from a tunnel

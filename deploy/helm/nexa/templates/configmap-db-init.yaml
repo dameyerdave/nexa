@@ -11,6 +11,8 @@ metadata:
 data:
   97-_supabase.sql: |-
 {{ .Files.Get "files/db/_supabase.sql" | indent 4 }}
+  97-metabase.sql: |-
+{{ .Files.Get "files/db/metabase.sql" | indent 4 }}
   99-realtime.sql: |-
 {{ .Files.Get "files/db/realtime.sql" | indent 4 }}
   99-logs.sql: |-

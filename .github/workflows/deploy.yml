@@ -113,7 +113,6 @@ jobs:
             S3_PROTOCOL_ACCESS_KEY_SECRET: "${{ secrets.S3_PROTOCOL_ACCESS_KEY_SECRET }}"
             GOOGLE_SECRET: "${{ secrets.GOOGLE_SECRET }}"
             SMTP_PASS: "${{ secrets.SMTP_PASS }}"
-            MB_DB_PASS: "${{ secrets.MB_DB_PASS }}"
             METABASE_ADMIN_PASSWORD: "${{ secrets.METABASE_ADMIN_PASSWORD }}"
             OPENAI_API_KEY: "${{ secrets.OPENAI_API_KEY }}"
             CLOUDFLARE_TUNNEL_TOKEN: "${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}"

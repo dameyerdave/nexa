@@ -62,7 +62,6 @@ secret below (**do not** pass `--update-env`, that writes to a local
 | `S3_PROTOCOL_ACCESS_KEY_ID` | yes | |
 | `S3_PROTOCOL_ACCESS_KEY_SECRET` | yes | |
 | `DASHBOARD_PASSWORD` | yes | HTTP Basic Auth password for Supabase Studio |
-| `MB_DB_PASS` | yes | Metabase's own Postgres app-database password |
 | `METABASE_ADMIN_PASSWORD` | yes | bootstraps the Metabase admin account on first deploy |
 | `SUPABASE_PUBLISHABLE_KEY` | no | optional opaque API key - leave the GitHub secret unset (empty) unless you've set this up, see the Supabase self-hosting docs |
 | `SUPABASE_SECRET_KEY` | no | optional opaque API key - same as above |

@@ -16,9 +16,9 @@
 #   imgproxy    - image transformation for Storage
 #   meta        - postgres-meta, used by Studio
 #   functions   - Supabase Edge Functions runtime
-#   db          - Postgres database used by Supabase
+#   db          - Postgres database used by Supabase (and by Metabase's own
+#                 app data, in its own `metabase` database on this instance)
 #   supavisor   - Postgres connection pooler
-#   metabase-db - dedicated Postgres app database for Metabase
 #   metabase    - Metabase, the "Data Analytics" tool
 #
 
@@ -431,6 +431,7 @@ services:
       - ./volumes/db/jwt.sql:/docker-entrypoint-initdb.d/init-scripts/99-jwt.sql:Z
       - ./volumes/db/data:/var/lib/postgresql/data:Z
       - ./volumes/db/_supabase.sql:/docker-entrypoint-initdb.d/migrations/97-_supabase.sql:Z
+      - ./volumes/db/metabase.sql:/docker-entrypoint-initdb.d/migrations/97-metabase.sql:Z
       - ./volumes/db/logs.sql:/docker-entrypoint-initdb.d/migrations/99-logs.sql:Z
       - ./volumes/db/pooler.sql:/docker-entrypoint-initdb.d/migrations/99-pooler.sql:Z
       - db-config:/etc/postgresql-custom
@@ -520,22 +521,10 @@ services:
       ]
 
   # --- Metabase ("Data Analytics") ---------------------------------------
-
-  metabase-db:
-    container_name: nexa-metabase-db
-    image: postgres:16-alpine
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-    environment:
-      POSTGRES_USER: ${MB_DB_USER:-metabase}
-      POSTGRES_PASSWORD: ${MB_DB_PASS}
-      POSTGRES_DB: ${MB_DB_DBNAME:-metabase}
-    volumes:
-      - metabase-db-data:/var/lib/postgresql/data
+  # Metabase's own application data (dashboards, questions, users) and the
+  # business data it queries for analytics both live on the one Supabase
+  # Postgres server above - in the dedicated `metabase` database created by
+  # volumes/db/metabase.sql, not a separate Postgres container.
 
   metabase:
     container_name: nexa-metabase
@@ -544,7 +533,7 @@ services:
     ports:
       - ${METABASE_PORT:-3200}:3000
     depends_on:
-      metabase-db:
+      db:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl --fail -s http://localhost:3000/api/health || exit 1"]
@@ -554,11 +543,11 @@ services:
       start_period: 60s
     environment:
       MB_DB_TYPE: postgres
-      MB_DB_HOST: metabase-db
-      MB_DB_PORT: 5432
-      MB_DB_DBNAME: ${MB_DB_DBNAME:-metabase}
-      MB_DB_USER: ${MB_DB_USER:-metabase}
-      MB_DB_PASS: ${MB_DB_PASS}
+      MB_DB_HOST: db
+      MB_DB_PORT: ${POSTGRES_PORT}
+      MB_DB_DBNAME: metabase
+      MB_DB_USER: postgres
+      MB_DB_PASS: ${POSTGRES_PASSWORD}
       MB_SITE_NAME: ${APP_NAME:-Nexa}
       MB_SITE_URL: ${METABASE_PUBLIC_URL}
       # Google Sign-In (OSS-supported): reuses the same Google OAuth client
@@ -570,4 +559,3 @@ services:
 volumes:
   db-config:
   deno-cache:
-  metabase-db-data:

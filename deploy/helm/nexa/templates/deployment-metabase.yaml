@@ -19,9 +19,17 @@ spec:
           image: "{{ .Values.images.metabase.repository }}:{{ .Values.images.metabase.tag }}"
           {{- include "nexa.envFrom" . | nindent 10 }}
           env:
+            # Metabase's own application data lives in a dedicated `metabase`
+            # database on the same Supabase Postgres instance (see
+            # volumes/db/metabase.sql), not a separate Postgres container.
             - { name: MB_DB_TYPE, value: postgres }
-            - { name: MB_DB_HOST, value: metabase-db }
-            - { name: MB_DB_PORT, value: "5432" }
+            - { name: MB_DB_HOST, value: db }
+            - name: MB_DB_PORT
+              valueFrom: { configMapKeyRef: { name: {{ include "nexa.fullname" . }}-config, key: POSTGRES_PORT } }
+            - { name: MB_DB_DBNAME, value: metabase }
+            - { name: MB_DB_USER, value: postgres }
+            - name: MB_DB_PASS
+              valueFrom: { secretKeyRef: { name: {{ include "nexa.fullname" . }}-secrets, key: POSTGRES_PASSWORD } }
             - name: MB_SITE_NAME
               valueFrom: { configMapKeyRef: { name: {{ include "nexa.fullname" . }}-config, key: APP_NAME } }
             - name: MB_GOOGLE_AUTH_CLIENT_ID
