@@ -62,7 +62,14 @@ spec:
           # this. k8s `command` replaces ENTRYPOINT (Docker Compose's
           # `command` only replaces CMD), so using `command` here made
           # postgres launch directly as root and refuse to start.
-          args: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf", "-c", "log_min_messages=fatal"]
+          #
+          # data_directory is set explicitly here because the image's baked-in
+          # postgresql.conf sets its own `data_directory` pointing at the
+          # mount root - and per Postgres's own precedence rules, that value
+          # OVERRIDES PGDATA/-D entirely. Without this, initdb writes to the
+          # $PGDATA subdirectory but the server then looks in the mount root
+          # instead and FATALs "not a valid data directory" every restart.
+          args: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf", "-c", "data_directory=/var/lib/postgresql/data/pgdata", "-c", "log_min_messages=fatal"]
           ports:
             - containerPort: 5432
               name: postgres
