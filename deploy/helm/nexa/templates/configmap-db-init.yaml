@@ -1,7 +1,9 @@
 # Two ConfigMaps because Postgres' docker-entrypoint-initdb.d needs these
-# split across two subdirectories (same layout docker-compose.yml uses),
-# and a ConfigMap volume mount is flat - each becomes its own volume,
-# mounted at a different subPath in templates/statefulset-db.yaml.
+# split across two subdirectories (same layout docker-compose.yml uses).
+# Each key here is mounted individually via subPath in
+# templates/statefulset-db.yaml, not as a directory - see the comment
+# there for why (mounting the whole ConfigMap as a directory would hide
+# the image's own baked-in default migrations in those same paths).
 apiVersion: v1
 kind: ConfigMap
 metadata:

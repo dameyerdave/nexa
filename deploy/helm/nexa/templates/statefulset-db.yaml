@@ -82,8 +82,22 @@ spec:
             initialDelaySeconds: 15
           volumeMounts:
             - { name: data, mountPath: /var/lib/postgresql/data }
-            - { name: db-migrations, mountPath: /docker-entrypoint-initdb.d/migrations }
-            - { name: db-init-scripts, mountPath: /docker-entrypoint-initdb.d/init-scripts }
+            # subPath per file, not a directory-level mount: the image bakes
+            # its own default migrations into these same two directories
+            # (which create the `extensions` schema, supabase_admin, etc.
+            # before ours run) - docker-compose.yml's per-file bind mounts
+            # add to that directory's contents, but a ConfigMap mounted at
+            # the directory itself REPLACES it wholesale, silently deleting
+            # every one of the image's own baked-in scripts. subPath mounts
+            # just the one file, leaving the rest of the directory intact.
+            - { name: db-migrations, mountPath: /docker-entrypoint-initdb.d/migrations/97-_supabase.sql, subPath: 97-_supabase.sql }
+            - { name: db-migrations, mountPath: /docker-entrypoint-initdb.d/migrations/97-metabase.sql, subPath: 97-metabase.sql }
+            - { name: db-migrations, mountPath: /docker-entrypoint-initdb.d/migrations/99-realtime.sql, subPath: 99-realtime.sql }
+            - { name: db-migrations, mountPath: /docker-entrypoint-initdb.d/migrations/99-logs.sql, subPath: 99-logs.sql }
+            - { name: db-migrations, mountPath: /docker-entrypoint-initdb.d/migrations/99-pooler.sql, subPath: 99-pooler.sql }
+            - { name: db-init-scripts, mountPath: /docker-entrypoint-initdb.d/init-scripts/98-webhooks.sql, subPath: 98-webhooks.sql }
+            - { name: db-init-scripts, mountPath: /docker-entrypoint-initdb.d/init-scripts/99-roles.sql, subPath: 99-roles.sql }
+            - { name: db-init-scripts, mountPath: /docker-entrypoint-initdb.d/init-scripts/99-jwt.sql, subPath: 99-jwt.sql }
           resources:
             {{- toYaml .Values.resources.large | nindent 12 }}
       volumes:
