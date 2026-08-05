@@ -11,7 +11,7 @@ global:
   #   portal    -> {{ domain }}
   #   kong/api  -> api.{{ domain }}
   #   metabase  -> analytics.{{ domain }}
-  domain: nexa.example.com
+  domain: nexdata.example.com
   # Set to false if you have no Ingress controller and are relying on
   # cloudflared.enabled (Cloudflare Tunnel) instead - the computed public
   # URLs in the ConfigMap still use `domain` above either way; only the
@@ -86,7 +86,7 @@ config:
   SMTP_HOST: ""
   SMTP_PORT: "2500"
   SMTP_USER: ""
-  SMTP_SENDER_NAME: Nexa
+  SMTP_SENDER_NAME: Nexdata
   ENABLE_ANONYMOUS_USERS: "false"
   ENABLE_PHONE_SIGNUP: "false"
   ENABLE_PHONE_AUTOCONFIRM: "false"
@@ -110,7 +110,7 @@ config:
 
   IMGPROXY_AUTO_WEBP: "true"
 
-  APP_NAME: Nexa
+  APP_NAME: Nexdata
   DATA_MODEL_LABEL: "Data Model"
   DATA_ANALYTICS_LABEL: "Data Analytics"
 

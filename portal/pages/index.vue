@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <header class="header">
-      <h1>{{ appName }}</h1>
+      <img class="logo" src="~/assets/img/logo.svg" :alt="appName" />
       <button class="link-btn" type="button" @click="onSignOut">Sign out</button>
     </header>
     <p class="subtitle">Choose a destination</p>

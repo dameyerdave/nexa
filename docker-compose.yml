@@ -34,7 +34,7 @@ services:
     ports:
       - ${PORTAL_PORT:-3100}:3000
     environment:
-      NUXT_PUBLIC_APP_NAME: ${APP_NAME:-Nexa}
+      NUXT_PUBLIC_APP_NAME: ${APP_NAME:-Nexdata}
       NUXT_PUBLIC_SUPABASE_URL: ${SUPABASE_PUBLIC_URL}
       NUXT_PUBLIC_SUPABASE_ANON_KEY: ${ANON_KEY}
       NUXT_PUBLIC_DATA_MODEL_LABEL: ${DATA_MODEL_LABEL:-Data Model}
@@ -548,7 +548,7 @@ services:
       MB_DB_DBNAME: metabase
       MB_DB_USER: postgres
       MB_DB_PASS: ${POSTGRES_PASSWORD}
-      MB_SITE_NAME: ${APP_NAME:-Nexa}
+      MB_SITE_NAME: ${APP_NAME:-Nexdata}
       MB_SITE_URL: ${METABASE_PUBLIC_URL}
       # Google Sign-In (OSS-supported): reuses the same Google OAuth client
       # configured for Supabase Auth above, so end users authenticate with

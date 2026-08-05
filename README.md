@@ -1,4 +1,4 @@
-# nexa
+# Nexdata
 
 A self-hosted data stack behind a single, minimalistic front door.
 

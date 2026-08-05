@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <div class="card">
-      <h1>{{ appName }}</h1>
+      <img class="logo" src="~/assets/img/logo.svg" :alt="appName" />
       <p class="subtitle">{{ mode === "signup" ? "Create an account" : "Sign in to continue" }}</p>
 
       <form class="form" @submit.prevent="onSubmit">

@@ -3,6 +3,12 @@ export default defineNuxtConfig({
   ssr: false,
   devtools: { enabled: false },
   css: ["~/assets/css/main.css"],
+  app: {
+    head: {
+      title: "Nexdata",
+      link: [{ rel: "icon", type: "image/svg+xml", href: "/favicon.svg" }],
+    },
+  },
   nitro: {
     preset: "node-server",
   },
@@ -10,7 +16,7 @@ export default defineNuxtConfig({
     public: {
       // All of these are overridden at container start via matching
       // NUXT_PUBLIC_* environment variables (see docker-compose.yml / .env).
-      appName: "Nexa",
+      appName: "Nexdata",
       supabaseUrl: "",
       supabaseAnonKey: "",
       dataModelLabel: "Data Model",

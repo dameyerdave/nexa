@@ -1,0 +1,29 @@
+<svg width="168" height="36" viewBox="0 0 168 36" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Nexdata">
+  <defs>
+    <linearGradient id="nexdata-mark" x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5b8cff" />
+      <stop offset="1" stop-color="#b06bff" />
+    </linearGradient>
+  </defs>
+
+  <!-- mark: three connected nodes, standing for linked data -->
+  <g>
+    <line x1="18" y1="7" x2="7" y2="27" stroke="url(#nexdata-mark)" stroke-width="2" stroke-linecap="round" />
+    <line x1="18" y1="7" x2="29" y2="27" stroke="url(#nexdata-mark)" stroke-width="2" stroke-linecap="round" />
+    <line x1="7" y1="27" x2="29" y2="27" stroke="url(#nexdata-mark)" stroke-width="2" stroke-linecap="round" />
+    <circle cx="18" cy="7" r="5" fill="url(#nexdata-mark)" />
+    <circle cx="7" cy="27" r="5" fill="url(#nexdata-mark)" />
+    <circle cx="29" cy="27" r="5" fill="url(#nexdata-mark)" />
+  </g>
+
+  <!-- wordmark -->
+  <text
+    x="46"
+    y="25"
+    font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+    font-size="20"
+    font-weight="700"
+    letter-spacing="-0.3"
+    fill="#f4f4f5"
+  >Nexdata</text>
+</svg>

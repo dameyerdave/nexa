@@ -1,0 +1,15 @@
+<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="nexdata-mark" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5b8cff" />
+      <stop offset="1" stop-color="#b06bff" />
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="7" fill="#0f1115" />
+  <line x1="16" y1="7" x2="7" y2="24" stroke="url(#nexdata-mark)" stroke-width="2" stroke-linecap="round" />
+  <line x1="16" y1="7" x2="25" y2="24" stroke="url(#nexdata-mark)" stroke-width="2" stroke-linecap="round" />
+  <line x1="7" y1="24" x2="25" y2="24" stroke="url(#nexdata-mark)" stroke-width="2" stroke-linecap="round" />
+  <circle cx="16" cy="7" r="4" fill="url(#nexdata-mark)" />
+  <circle cx="7" cy="24" r="4" fill="url(#nexdata-mark)" />
+  <circle cx="25" cy="24" r="4" fill="url(#nexdata-mark)" />
+</svg>

@@ -56,6 +56,12 @@ h1 {
   margin: 0;
 }
 
+.logo {
+  height: 1.75rem;
+  width: auto;
+  display: block;
+}
+
 .subtitle {
   color: var(--muted);
   margin: 0;
