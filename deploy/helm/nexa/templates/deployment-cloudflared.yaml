@@ -24,7 +24,13 @@ spec:
       containers:
         - name: cloudflared
           image: "{{ .Values.images.cloudflared.repository }}:{{ .Values.images.cloudflared.tag }}"
-          args: ["tunnel", "--no-autoupdate", "run"]
+          # --metrics binds the /ready health endpoint to a fixed port -
+          # without it cloudflared picks a random ephemeral port each start,
+          # so the liveness probe below got a connection refused every
+          # cycle and kept killing the container in an endless restart loop
+          # (each restart re-registered fine with Cloudflare's edge, which
+          # is why the tunnel still "worked" despite the crash-looping).
+          args: ["tunnel", "--no-autoupdate", "--metrics", "0.0.0.0:2000", "run"]
           env:
             - name: TUNNEL_TOKEN
               valueFrom: { secretKeyRef: { name: {{ include "nexa.fullname" . }}-secrets, key: CLOUDFLARE_TUNNEL_TOKEN } }
