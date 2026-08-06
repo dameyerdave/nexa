@@ -14,6 +14,8 @@ spec:
     metadata:
       labels:
         {{- include "nexa.selectorLabels" (dict "component" "db") | nindent 8 }}
+      annotations:
+        {{- include "nexa.podAnnotations" . | nindent 8 }}
     spec:
       # fsGroup alone only fixes group ownership, not the UID postgres
       # actually checks - and unlike the plain postgres image, this image's

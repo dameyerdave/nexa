@@ -20,6 +20,8 @@ spec:
     metadata:
       labels:
         {{- include "nexa.selectorLabels" (dict "component" "cloudflared") | nindent 8 }}
+      annotations:
+        {{- include "nexa.podAnnotations" . | nindent 8 }}
     spec:
       containers:
         - name: cloudflared

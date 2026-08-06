@@ -13,6 +13,8 @@ spec:
     metadata:
       labels:
         {{- include "nexa.selectorLabels" (dict "component" "metabase") | nindent 8 }}
+      annotations:
+        {{- include "nexa.podAnnotations" . | nindent 8 }}
     spec:
       containers:
         - name: metabase

@@ -27,6 +27,8 @@ spec:
     metadata:
       labels:
         {{- include "nexa.selectorLabels" (dict "component" "storage") | nindent 8 }}
+      annotations:
+        {{- include "nexa.podAnnotations" . | nindent 8 }}
     spec:
       containers:
         - name: storage
