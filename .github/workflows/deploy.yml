@@ -46,6 +46,7 @@ permissions:
 env:
   REGISTRY: ghcr.io
   IMAGE: ghcr.io/${{ github.repository_owner }}/nexa-portal
+  ROLES_API_IMAGE: ghcr.io/${{ github.repository_owner }}/nexa-roles-api
 
 jobs:
   build-portal:
@@ -71,9 +72,32 @@ jobs:
             ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
             ${{ env.IMAGE }}:latest
 
+  build-roles-api:
+    name: Build and push roles-api image
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: tag
+        run: echo "tag=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./roles-api
+          push: true
+          tags: |
+            ${{ env.ROLES_API_IMAGE }}:${{ steps.tag.outputs.tag }}
+            ${{ env.ROLES_API_IMAGE }}:latest
+
   deploy:
     name: Deploy to Kubernetes
-    needs: build-portal
+    needs: [build-portal, build-roles-api]
     runs-on: ubuntu-latest
     environment: production   # requires a manual approver if you protect this GitHub Environment
     steps:
@@ -151,6 +175,9 @@ jobs:
             METABASE_ADMIN_PASSWORD: "${{ secrets.METABASE_ADMIN_PASSWORD }}"
             OPENAI_API_KEY: "${{ secrets.OPENAI_API_KEY }}"
             CLOUDFLARE_TUNNEL_TOKEN: "${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}"
+            DJANGO_SECRET_KEY: "${{ secrets.DJANGO_SECRET_KEY }}"
+            ROLES_API_TOKEN: "${{ secrets.ROLES_API_TOKEN }}"
+            DJANGO_SUPERUSER_PASSWORD: "${{ secrets.DJANGO_SUPERUSER_PASSWORD }}"
           EOF
 
       - name: Uninstall existing release (clean_reinstall)
@@ -171,6 +198,9 @@ jobs:
             -f values-secrets.yaml \
             --set images.portal.repository=${{ env.IMAGE }} \
             --set images.portal.tag=${{ needs.build-portal.outputs.tag }} \
+            --set images.rolesApi.repository=${{ env.ROLES_API_IMAGE }} \
+            --set images.rolesApi.tag=${{ needs.build-roles-api.outputs.tag }} \
+            --set config.DJANGO_SUPERUSER_EMAIL="${{ vars.NEXA_ADMIN_EMAIL }}" \
             --set global.domain="${{ github.event.inputs.domain || vars.NEXA_DOMAIN }}" \
             --set global.ingressEnabled=${{ (github.event.inputs.ingress_enabled || vars.NEXA_INGRESS_ENABLED) != 'false' }} \
             --set global.ingressClassName="${{ vars.NEXA_INGRESS_CLASS || 'nginx' }}" \

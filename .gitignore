@@ -21,5 +21,10 @@ portal/dist
 __pycache__/
 *.pyc
 
+# roles-api (Django) - local SQLite db + collectstatic output
+roles-api/data
+roles-api/staticfiles
+roles-api/db.sqlite3
+
 # OS
 .DS_Store

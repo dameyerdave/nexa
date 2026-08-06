@@ -1,0 +1,90 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "nexa.fullname" . }}-roles-api-data
+  labels:
+    {{- include "nexa.labels" . | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- if .Values.global.storageClassName }}
+  storageClassName: {{ .Values.global.storageClassName }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.rolesApi.size }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nexa.fullname" . }}-roles-api
+  labels:
+    {{- include "nexa.labels" . | nindent 4 }}
+spec:
+  # Always exactly 1 - SQLite on a ReadWriteOnce volume can't safely be
+  # written by two pods at once. Not exposed as a values.yaml knob on
+  # purpose, unlike every other component's replicaCount.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "nexa.selectorLabels" (dict "component" "roles-api") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nexa.selectorLabels" (dict "component" "roles-api") | nindent 8 }}
+      annotations:
+        {{- include "nexa.podAnnotations" . | nindent 8 }}
+    spec:
+      containers:
+        - name: roles-api
+          image: "{{ .Values.images.rolesApi.repository }}:{{ .Values.images.rolesApi.tag }}"
+          env:
+            - { name: DJANGO_DB_PATH, value: /app/data/db.sqlite3 }
+            - name: DJANGO_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: {{ include "nexa.fullname" . }}-secrets, key: DJANGO_SECRET_KEY } }
+            - name: ROLES_API_TOKEN
+              valueFrom: { secretKeyRef: { name: {{ include "nexa.fullname" . }}-secrets, key: ROLES_API_TOKEN } }
+            # The one env-configured identity - see README.md "Roles and
+            # access control" for why every other role/admin grant lives in
+            # roles-api's own database instead.
+            - name: DJANGO_SUPERUSER_EMAIL
+              valueFrom: { configMapKeyRef: { name: {{ include "nexa.fullname" . }}-config, key: DJANGO_SUPERUSER_EMAIL } }
+            - name: DJANGO_SUPERUSER_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ include "nexa.fullname" . }}-secrets, key: DJANGO_SUPERUSER_PASSWORD } }
+            # Only used to seed the Studio credential row on first run;
+            # rotate it via the Django admin afterwards, not by changing
+            # these (Kong itself still reads these two values directly).
+            - name: DASHBOARD_USERNAME
+              valueFrom: { configMapKeyRef: { name: {{ include "nexa.fullname" . }}-config, key: DASHBOARD_USERNAME } }
+            - name: DASHBOARD_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ include "nexa.fullname" . }}-secrets, key: DASHBOARD_PASSWORD } }
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            tcpSocket: { port: 8000 }
+            periodSeconds: 5
+          volumeMounts:
+            - { name: data, mountPath: /app/data }
+          resources:
+            {{- toYaml .Values.resources.small | nindent 12 }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "nexa.fullname" . }}-roles-api-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  # Cluster-internal only - no Ingress/Kong route. The portal reaches this
+  # over ROLES_API_URL; the Django admin (for the main admin) is reached via
+  # `kubectl port-forward svc/roles-api 8000:8000`, see README.md.
+  name: roles-api
+  labels:
+    {{- include "nexa.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "nexa.selectorLabels" (dict "component" "roles-api") | nindent 4 }}
+  ports:
+    - port: 8000
+      targetPort: 8000

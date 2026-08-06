@@ -3,26 +3,33 @@ export default defineEventHandler(async (event) => {
 
   const id = getRouterParam(event, "id");
   const body = await readBody<{ roles?: string[] }>(event);
-  const roles = (body.roles ?? []).filter((r) => ALLOWED_ROLES.includes(r));
+  const roles = body.roles ?? [];
 
   const config = useRuntimeConfig();
-  const updated = await $fetch<{ id: string; email: string; app_metadata?: { roles?: string[] } }>(
+  const gotrueUser = await $fetch<{ id: string; email: string }>(
     `${config.public.supabaseUrl}/auth/v1/admin/users/${id}`,
     {
-      method: "PUT",
       headers: {
         apikey: config.serviceRoleKey,
         Authorization: `Bearer ${config.serviceRoleKey}`,
       },
-      body: { app_metadata: { roles } },
     },
   );
 
+  const updated = await updatePortalUserRoles(gotrueUser.email, {
+    dbadmin: roles.includes("dbadmin"),
+    dashboardadmin: roles.includes("dashboardadmin"),
+  });
+
   try {
-    await syncMetabaseDashboardAdmin(updated.email, roles.includes("dashboardadmin"));
+    await syncMetabaseDashboardAdmin(updated.email, updated.dashboardadmin);
   } catch (err) {
     console.error(`Metabase group sync failed for ${updated.email}:`, err);
   }
 
-  return { id: updated.id, email: updated.email, roles };
+  return {
+    id: gotrueUser.id,
+    email: updated.email,
+    roles: [...(updated.dbadmin ? ["dbadmin"] : []), ...(updated.dashboardadmin ? ["dashboardadmin"] : [])],
+  };
 });

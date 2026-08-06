@@ -42,8 +42,10 @@ images:
   metabase: { repository: metabase/metabase, tag: "v0.53.13" }
   cloudflared: { repository: cloudflare/cloudflared, tag: "latest" }
   # Built and pushed by CI (.github/workflows/deploy.yml) - tag is set with
-  # --set images.portal.tag=<git sha> at deploy time, not hand-edited here.
+  # --set images.portal.tag=<git sha> / --set images.rolesApi.tag=<git sha>
+  # at deploy time, not hand-edited here.
   portal: { repository: ghcr.io/OWNER/nexa-portal, tag: "latest" }
+  rolesApi: { repository: ghcr.io/OWNER/nexa-roles-api, tag: "latest" }
 
 cloudflared:
   enabled: false
@@ -56,6 +58,7 @@ persistence:
   # templates/deployment-storage.yaml for the trade-off and how to make
   # that durable again if you have PVC headroom to spare.
   db: { size: 10Gi }
+  rolesApi: { size: 256Mi }
 
 resources:
   small: { requests: { cpu: 25m, memory: 64Mi }, limits: { memory: 256Mi } }
@@ -114,11 +117,12 @@ config:
   DATA_MODEL_LABEL: "Data Model"
   DATA_ANALYTICS_LABEL: "Data Analytics"
 
-  # Comma-separated allowlist of emails treated as portal admins - they can
-  # manage user roles at /admin/users (dbadmin: auto Studio access,
-  # dashboardadmin: edit rights in Metabase). Leave empty and no one can
-  # self-elevate; set it to your own account's email before first deploy.
-  PORTAL_ADMIN_EMAILS: ""
+  # The one env-configured identity for roles-api - see README.md "Roles
+  # and access control". This becomes the main Django admin superuser
+  # (reachable via `kubectl port-forward svc/roles-api 8000:8000`), who can
+  # then promote other users to portal admin from there. Every other
+  # role/admin grant lives in roles-api's own database, not here.
+  DJANGO_SUPERUSER_EMAIL: ""
 
   METABASE_ADMIN_EMAIL: admin@example.com
   METABASE_ADMIN_FIRST_NAME: Admin
@@ -162,6 +166,11 @@ secrets:
   # Only needed when cloudflared.enabled is true - a token from a tunnel
   # created in the Cloudflare Zero Trust dashboard (Networks > Tunnels).
   CLOUDFLARE_TUNNEL_TOKEN: ""
+
+  # roles-api (Django) - see README.md "Roles and access control".
+  DJANGO_SECRET_KEY: "changeme-django-secret-key"
+  ROLES_API_TOKEN: "changeme-roles-api-token"
+  DJANGO_SUPERUSER_PASSWORD: "changeme-django-superuser-password"
 
 replicaCount:
   studio: 1

@@ -2,14 +2,14 @@
 
 Two workflows under [`.github/workflows`](../.github/workflows):
 
-- **`ci.yml`** - on every PR and push to `main`: builds the portal image
-  (no push), `helm lint`s and renders the chart, validates the rendered
-  manifests against the Kubernetes API schema (via
+- **`ci.yml`** - on every PR and push to `main`: builds the portal and
+  roles-api images (no push), `helm lint`s and renders the chart, validates
+  the rendered manifests against the Kubernetes API schema (via
   [kubeconform](https://github.com/yannh/kubeconform)), and fails if
   `apps/*/migrations/*.sql` is out of date relative to its `schema/*.yml`
   source (i.e. someone edited the YAML and forgot to recompile).
 - **`deploy.yml`** - on push to `main` (or manually via "Run workflow"):
-  builds and pushes the portal image to GHCR, then
+  builds and pushes the portal and roles-api images to GHCR, then
   `helm upgrade --install`s [`deploy/helm/nexa`](./helm/nexa) against your
   cluster.
 
@@ -29,10 +29,10 @@ access modes, etc).
 | `KUBE_CONFIG` | A kubeconfig for the target cluster, **base64-encoded** (`cat ~/.kube/config \| base64 -w0`). Scope this to a service account with access to just the `nexa` namespace if your cluster supports it - the workflow only needs to create/update objects there. |
 
 Nothing is needed for the container registry: images are pushed to GHCR
-(`ghcr.io/<owner>/nexa-portal`) using the workflow's automatic
-`GITHUB_TOKEN`. The one thing to check is that your repo allows it write
-access: **Settings -> Actions -> General -> Workflow permissions -> Read
-and write permissions**.
+(`ghcr.io/<owner>/nexa-portal` and `ghcr.io/<owner>/nexa-roles-api`) using
+the workflow's automatic `GITHUB_TOKEN`. The one thing to check is that
+your repo allows it write access: **Settings -> Actions -> General ->
+Workflow permissions -> Read and write permissions**.
 
 ### Application secrets
 
@@ -73,6 +73,12 @@ secret below (**do not** pass `--update-env`, that writes to a local
 | `SMTP_PASS` | no | only if configuring real SMTP for email flows |
 | `OPENAI_API_KEY` | no | only to enable Studio's AI Assistant |
 | `CLOUDFLARE_TUNNEL_TOKEN` | no | only if using `cloudflared` instead of/alongside Ingress (see below) - the token from a tunnel created in the Cloudflare Zero Trust dashboard (Networks -> Tunnels -> your tunnel -> "Docker" install command has it embedded after `--token`) |
+| `DJANGO_SECRET_KEY` | yes | roles-api's own Django secret key (unrelated to `JWT_SECRET`) |
+| `ROLES_API_TOKEN` | yes | shared bearer token the portal uses to call roles-api |
+| `DJANGO_SUPERUSER_PASSWORD` | yes | password for the roles-api bootstrap admin (paired with the `DJANGO_SUPERUSER_EMAIL` variable below) |
+
+`DJANGO_SUPERUSER_EMAIL` is also required but is **not** a secret - see the
+variables table below, since it's an identity, not a credential.
 
 A secret left unset in GitHub resolves to an empty string in the workflow
 (`${{ secrets.FOO }}` is `""` when `FOO` doesn't exist) - fine for the
@@ -89,6 +95,7 @@ need to be secrets.
 | Variable | What | Default if unset |
 | --- | --- | --- |
 | `NEXA_DOMAIN` | Base domain - portal at this host, Kong at `api.<domain>`, Metabase at `analytics.<domain>` | none, must be set |
+| `NEXA_ADMIN_EMAIL` | Email for roles-api's bootstrap admin (paired with the `DJANGO_SUPERUSER_PASSWORD` secret above) - see README.md "Roles and access control" | none, must be set |
 | `NEXA_INGRESS_CLASS` | Your ingress controller's `ingressClassName` | `nginx` |
 | `NEXA_CLUSTER_ISSUER` | A cert-manager `ClusterIssuer` name, for TLS | none (serves plain HTTP) |
 | `NEXA_INGRESS_ENABLED` | Set `false` if you have no Ingress controller (e.g. relying on `cloudflared` instead) | `true` |

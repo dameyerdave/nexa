@@ -4,28 +4,14 @@ export interface PortalUser {
   id: string;
   email: string;
   roles: string[];
-}
-
-const ALLOWED_ROLES = ["dbadmin", "dashboardadmin"];
-
-function getRoles(appMetadata: Record<string, unknown> | undefined): string[] {
-  const roles = appMetadata?.roles;
-  return Array.isArray(roles) ? roles.filter((r): r is string => ALLOWED_ROLES.includes(r)) : [];
-}
-
-function isAdminEmail(email: string): boolean {
-  const config = useRuntimeConfig();
-  const allowlist = config.portalAdminEmails
-    .split(",")
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean);
-  return allowlist.includes(email.toLowerCase());
+  isAdmin: boolean;
 }
 
 /**
  * Verifies the caller's Supabase access token by asking GoTrue itself
  * (the source of truth for token validity/expiry/rotation) rather than
- * re-implementing JWT verification here.
+ * re-implementing JWT verification here, then looks up their portal roles
+ * from roles-api - Supabase Auth owns identity, roles-api owns authorization.
  */
 export async function getUserFromEvent(event: H3Event): Promise<PortalUser | null> {
   const authHeader = getHeader(event, "authorization");
@@ -33,24 +19,24 @@ export async function getUserFromEvent(event: H3Event): Promise<PortalUser | nul
   if (!token) return null;
 
   const config = useRuntimeConfig();
+  let supabaseUser: { id: string; email: string };
   try {
-    const user = await $fetch<{ id: string; email: string; app_metadata?: Record<string, unknown> }>(
-      `${config.public.supabaseUrl}/auth/v1/user`,
-      {
-        headers: {
-          apikey: config.public.supabaseAnonKey,
-          Authorization: `Bearer ${token}`,
-        },
+    supabaseUser = await $fetch<{ id: string; email: string }>(`${config.public.supabaseUrl}/auth/v1/user`, {
+      headers: {
+        apikey: config.public.supabaseAnonKey,
+        Authorization: `Bearer ${token}`,
       },
-    );
-    return { id: user.id, email: user.email, roles: getRoles(user.app_metadata) };
+    });
   } catch {
     return null;
   }
-}
 
-export function isAdmin(user: PortalUser): boolean {
-  return isAdminEmail(user.email);
+  const portalRoles = await fetchPortalUser(supabaseUser.email);
+  const roles: string[] = [];
+  if (portalRoles.dbadmin) roles.push("dbadmin");
+  if (portalRoles.dashboardadmin) roles.push("dashboardadmin");
+
+  return { id: supabaseUser.id, email: supabaseUser.email, roles, isAdmin: portalRoles.is_admin };
 }
 
 export async function requireUser(event: H3Event): Promise<PortalUser> {
@@ -63,10 +49,8 @@ export async function requireUser(event: H3Event): Promise<PortalUser> {
 
 export async function requireAdmin(event: H3Event): Promise<PortalUser> {
   const user = await requireUser(event);
-  if (!isAdmin(user)) {
+  if (!user.isAdmin) {
     throw createError({ statusCode: 403, statusMessage: "Admin access required" });
   }
   return user;
 }
-
-export { ALLOWED_ROLES };

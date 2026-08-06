@@ -18,6 +18,18 @@ jobs:
           context: ./portal
           push: false
 
+  roles-api-build:
+    name: Build roles-api image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build (no push - just verify it builds)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./roles-api
+          push: false
+
   helm-lint:
     name: Lint and render the Helm chart
     runs-on: ubuntu-latest
@@ -29,7 +41,8 @@ jobs:
         run: |
           helm template nexa deploy/helm/nexa \
             --set global.domain=ci.example.com \
-            --set images.portal.tag=ci > /tmp/rendered.yaml
+            --set images.portal.tag=ci \
+            --set images.rolesApi.tag=ci > /tmp/rendered.yaml
       - name: Validate against the Kubernetes API schema
         run: |
           curl -sSLo kubeconform.tgz https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz

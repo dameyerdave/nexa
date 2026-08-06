@@ -132,22 +132,47 @@ button following the same pattern.
 Every portal user can sign in, but two roles unlock more:
 
 * **`dbadmin`** - the portal's "Data Model" tile becomes clickable and opens
-  Supabase Studio with `DASHBOARD_USERNAME`/`DASHBOARD_PASSWORD` embedded in
-  the URL, so the user isn't prompted for the shared Basic Auth credentials
-  (`portal/server/api/studio-link.get.ts`). Users without the role don't see
-  the tile at all.
+  Supabase Studio with the shared Basic Auth credential embedded in the
+  URL, so the user isn't prompted for it (`portal/server/api/studio-link.get.ts`).
+  Users without the role don't see the tile at all.
 * **`dashboardadmin`** - the user is added to a "Dashboard Admins" Metabase
   group that can create/edit dashboards and questions. Everyone else only
   gets view access. Metabase itself still requires its own sign-in
   (email/password, or Google if enabled) - this only changes what a
   signed-in Metabase user is allowed to do.
 
-Roles are assigned at `/admin/users`, visible only to emails listed in
-`PORTAL_ADMIN_EMAILS` (comma-separated; set it to your own email before
-first deploy - it's the only way to bootstrap who can manage roles). Roles
-are stored in the Supabase Auth user's `app_metadata.roles` via the GoTrue
-Admin API (`portal/server/api/admin/users/[id]/roles.put.ts`), so they're
-visible in the user's own JWT and survive re-login.
+### roles-api
+
+Role assignments and the Studio credential are **not** environment
+variables - they live in **roles-api**, a small internal Django + Django
+REST Framework service with its own SQLite database (separate from the
+Supabase/Metabase Postgres instance), deployed alongside the rest of the
+stack. It's the source of truth the portal calls into
+(`portal/server/utils/roles-api.ts`) whenever it needs to check or change
+someone's roles.
+
+The **only** admin identity configured via environment variables is the one
+bootstrap superuser: `DJANGO_SUPERUSER_EMAIL` / `DJANGO_SUPERUSER_PASSWORD`.
+Log into roles-api's own Django admin as that user to:
+
+* promote other users to **portal admin** (`is_admin`) - who can then
+  assign `dbadmin`/`dashboardadmin` to anyone from the portal's own
+  `/admin/users` page, no Django login needed for that day-to-day part;
+* view or rotate the shared **Studio credential** (seeded once from
+  `DASHBOARD_USERNAME`/`DASHBOARD_PASSWORD` so it starts in sync with
+  Kong's own consumer - see the comment on `StudioCredential` in
+  `roles-api/roles/models.py` for the one caveat: because Kong runs
+  DB-less from a declarative config baked at deploy time, rotating the
+  credential here also needs a matching redeploy for Kong to accept it).
+
+roles-api has no public route (no Ingress/Kong entry) - reach its Django
+admin with:
+
+```sh
+kubectl port-forward svc/roles-api 8000:8000 -n nexa   # then open http://localhost:8000/admin/
+```
+
+or, with `docker compose`, it's published locally at `${ROLES_API_PORT:-3102}`.
 
 `dashboardadmin` group membership is synced to Metabase automatically on
 every role change, but the *permissions* the "Dashboard Admins" group and
@@ -188,6 +213,7 @@ scripts/apply_schema.sh   Applies a compiled app's migrations to the running sta
 scripts/apply_dashboards.py Applies an apps/<app> YAML dashboard to Metabase
 volumes/                  Supabase self-hosting config (Kong routes, DB init SQL, ...)
 portal/                   Nuxt 3 portal app (Dockerfile included)
+roles-api/                Django + DRF role/access-control service (Dockerfile included)
 apps/                     Config-package data model apps (schema + dashboards)
 deploy/                   Kubernetes: Helm chart + CI/CD (see deploy/README.md)
 ```

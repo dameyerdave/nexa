@@ -43,19 +43,49 @@ services:
       NUXT_PUBLIC_DATA_ANALYTICS_LABEL: ${DATA_ANALYTICS_LABEL:-Data Analytics}
       NUXT_PUBLIC_DATA_ANALYTICS_URL: ${METABASE_PUBLIC_URL}
       # Server-only - used by server/api/admin/* and server/api/studio-link
-      # to talk to the Supabase Admin API / Metabase Admin API and to gate
-      # who can manage roles. Never exposed to the browser.
+      # to talk to the Supabase Admin API / Metabase Admin API. Never
+      # exposed to the browser. Role/admin state itself (who's a portal
+      # admin, who has dbadmin/dashboardadmin, the Studio credential) is
+      # NOT configured here - it lives in roles-api's own database, managed
+      # via its Django admin. See README.md "Roles and access control".
       NUXT_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
-      NUXT_PORTAL_ADMIN_EMAILS: ${PORTAL_ADMIN_EMAILS:-}
-      NUXT_DASHBOARD_USERNAME: ${DASHBOARD_USERNAME}
-      NUXT_DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
       NUXT_METABASE_ADMIN_EMAIL: ${METABASE_ADMIN_EMAIL}
       NUXT_METABASE_ADMIN_PASSWORD: ${METABASE_ADMIN_PASSWORD}
+      NUXT_ROLES_API_URL: http://roles-api:8000
+      NUXT_ROLES_API_TOKEN: ${ROLES_API_TOKEN}
     depends_on:
       kong:
         condition: service_healthy
       metabase:
         condition: service_started
+      roles-api:
+        condition: service_started
+
+  roles-api:
+    container_name: nexa-roles-api
+    build:
+      context: ./roles-api
+    restart: unless-stopped
+    ports:
+      # Local-only access to the Django admin (manage roles / rotate the
+      # Studio credential as the main admin) - not proxied through Kong.
+      - ${ROLES_API_PORT:-3102}:8000
+    volumes:
+      - roles-api-data:/app/data
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      DJANGO_DB_PATH: /app/data/db.sqlite3
+      ROLES_API_TOKEN: ${ROLES_API_TOKEN}
+      # The one env-configured identity - see README.md "Roles and access
+      # control" for why every other role/admin grant lives in the DB
+      # instead.
+      DJANGO_SUPERUSER_EMAIL: ${DJANGO_SUPERUSER_EMAIL}
+      DJANGO_SUPERUSER_PASSWORD: ${DJANGO_SUPERUSER_PASSWORD}
+      # Only used to seed the Studio credential row on first run, so it
+      # starts in sync with Kong's own consumer (see kong.yml) - rotate it
+      # via the Django admin afterwards, not by changing these.
+      DASHBOARD_USERNAME: ${DASHBOARD_USERNAME}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
 
   studio:
     container_name: supabase-studio
@@ -569,3 +599,4 @@ services:
 volumes:
   db-config:
   deno-cache:
+  roles-api-data:
