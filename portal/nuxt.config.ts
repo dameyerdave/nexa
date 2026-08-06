@@ -19,6 +19,7 @@ export default defineNuxtConfig({
       appName: "Nexdata",
       supabaseUrl: "",
       supabaseAnonKey: "",
+      googleEnabled: false,
       dataModelLabel: "Data Model",
       dataModelUrl: "",
       dataAnalyticsLabel: "Data Analytics",

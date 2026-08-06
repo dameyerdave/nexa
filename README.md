@@ -105,9 +105,11 @@ any provider you want to add. See the
 [Supabase social login docs](https://supabase.com/docs/guides/auth/social-login)
 and [enterprise SSO / SAML docs](https://supabase.com/docs/guides/auth/enterprise-sso/auth-sso-saml)
 for the full list and per-provider setup steps. `useAuth()`
-(`portal/composables/useAuth.ts`) already exposes `signInWithGoogle()`; wire
-a button to it (or to a new `signInWithOAuth('<provider>')` call) in
-`portal/pages/login.vue` to surface it in the UI.
+(`portal/composables/useAuth.ts`) exposes `signInWithGoogle()`, already wired
+to a "Sign in with Google" button on the login page that appears
+automatically once `GOOGLE_ENABLED=true` (see `portal/pages/login.vue`) - for
+another provider, add a matching `signInWithOAuth('<provider>')` call and
+button following the same pattern.
 
 ### SSO model and its limits
 

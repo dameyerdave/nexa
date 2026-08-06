@@ -26,6 +26,8 @@ spec:
               valueFrom: { configMapKeyRef: { name: {{ include "nexa.fullname" . }}-config, key: SUPABASE_PUBLIC_URL } }
             - name: NUXT_PUBLIC_SUPABASE_ANON_KEY
               valueFrom: { secretKeyRef: { name: {{ include "nexa.fullname" . }}-secrets, key: ANON_KEY } }
+            - name: NUXT_PUBLIC_GOOGLE_ENABLED
+              valueFrom: { configMapKeyRef: { name: {{ include "nexa.fullname" . }}-config, key: GOOGLE_ENABLED } }
             - name: NUXT_PUBLIC_DATA_MODEL_LABEL
               valueFrom: { configMapKeyRef: { name: {{ include "nexa.fullname" . }}-config, key: DATA_MODEL_LABEL } }
             - name: NUXT_PUBLIC_DATA_MODEL_URL
