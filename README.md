@@ -123,12 +123,41 @@ button following the same pattern.
   password.
 * **Portal -> Supabase Studio**: self-hosted Studio has no built-in SSO of
   its own; Kong protects it with HTTP Basic Auth (`DASHBOARD_USERNAME` /
-  `DASHBOARD_PASSWORD`), independent of end-user auth. This is the standard,
-  supported self-hosted Supabase security model and is intentionally kept
-  separate, since Studio is a schema/data administration tool typically
-  limited to a small set of operators rather than every portal user. Treat
-  the dashboard credentials as an admin secret and share them out of band
-  with whoever needs schema access.
+  `DASHBOARD_PASSWORD`). Rather than share that admin secret out of band,
+  the portal grants it on the user's behalf - see "Roles and access
+  control" below.
+
+## Roles and access control
+
+Every portal user can sign in, but two roles unlock more:
+
+* **`dbadmin`** - the portal's "Data Model" tile becomes clickable and opens
+  Supabase Studio with `DASHBOARD_USERNAME`/`DASHBOARD_PASSWORD` embedded in
+  the URL, so the user isn't prompted for the shared Basic Auth credentials
+  (`portal/server/api/studio-link.get.ts`). Users without the role don't see
+  the tile at all.
+* **`dashboardadmin`** - the user is added to a "Dashboard Admins" Metabase
+  group that can create/edit dashboards and questions. Everyone else only
+  gets view access. Metabase itself still requires its own sign-in
+  (email/password, or Google if enabled) - this only changes what a
+  signed-in Metabase user is allowed to do.
+
+Roles are assigned at `/admin/users`, visible only to emails listed in
+`PORTAL_ADMIN_EMAILS` (comma-separated; set it to your own email before
+first deploy - it's the only way to bootstrap who can manage roles). Roles
+are stored in the Supabase Auth user's `app_metadata.roles` via the GoTrue
+Admin API (`portal/server/api/admin/users/[id]/roles.put.ts`), so they're
+visible in the user's own JWT and survive re-login.
+
+`dashboardadmin` group membership is synced to Metabase automatically on
+every role change, but the *permissions* the "Dashboard Admins" group and
+"All Users" group actually have on Metabase's collections are a one-time
+setup - run this once against a fresh Metabase (safe to re-run, it
+converges rather than duplicating):
+
+```sh
+python3 scripts/setup_metabase_permissions.py
+```
 
 ## Data model apps
 

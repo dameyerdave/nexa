@@ -42,6 +42,15 @@ services:
       NUXT_PUBLIC_DATA_MODEL_URL: ${SUPABASE_PUBLIC_URL}
       NUXT_PUBLIC_DATA_ANALYTICS_LABEL: ${DATA_ANALYTICS_LABEL:-Data Analytics}
       NUXT_PUBLIC_DATA_ANALYTICS_URL: ${METABASE_PUBLIC_URL}
+      # Server-only - used by server/api/admin/* and server/api/studio-link
+      # to talk to the Supabase Admin API / Metabase Admin API and to gate
+      # who can manage roles. Never exposed to the browser.
+      NUXT_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+      NUXT_PORTAL_ADMIN_EMAILS: ${PORTAL_ADMIN_EMAILS:-}
+      NUXT_DASHBOARD_USERNAME: ${DASHBOARD_USERNAME}
+      NUXT_DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
+      NUXT_METABASE_ADMIN_EMAIL: ${METABASE_ADMIN_EMAIL}
+      NUXT_METABASE_ADMIN_PASSWORD: ${METABASE_ADMIN_PASSWORD}
     depends_on:
       kong:
         condition: service_healthy

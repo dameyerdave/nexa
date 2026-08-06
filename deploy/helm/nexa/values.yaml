@@ -114,6 +114,12 @@ config:
   DATA_MODEL_LABEL: "Data Model"
   DATA_ANALYTICS_LABEL: "Data Analytics"
 
+  # Comma-separated allowlist of emails treated as portal admins - they can
+  # manage user roles at /admin/users (dbadmin: auto Studio access,
+  # dashboardadmin: edit rights in Metabase). Leave empty and no one can
+  # self-elevate; set it to your own account's email before first deploy.
+  PORTAL_ADMIN_EMAILS: ""
+
   METABASE_ADMIN_EMAIL: admin@example.com
   METABASE_ADMIN_FIRST_NAME: Admin
   METABASE_ADMIN_LAST_NAME: User

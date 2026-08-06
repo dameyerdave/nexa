@@ -36,6 +36,21 @@ spec:
               valueFrom: { configMapKeyRef: { name: {{ include "nexa.fullname" . }}-config, key: DATA_ANALYTICS_LABEL } }
             - name: NUXT_PUBLIC_DATA_ANALYTICS_URL
               valueFrom: { configMapKeyRef: { name: {{ include "nexa.fullname" . }}-config, key: METABASE_PUBLIC_URL } }
+            # Server-only - used by server/api/admin/* and server/api/studio-link
+            # to talk to the Supabase Admin API / Metabase Admin API and to
+            # gate who can manage roles. Never exposed to the browser.
+            - name: NUXT_SERVICE_ROLE_KEY
+              valueFrom: { secretKeyRef: { name: {{ include "nexa.fullname" . }}-secrets, key: SERVICE_ROLE_KEY } }
+            - name: NUXT_PORTAL_ADMIN_EMAILS
+              valueFrom: { configMapKeyRef: { name: {{ include "nexa.fullname" . }}-config, key: PORTAL_ADMIN_EMAILS } }
+            - name: NUXT_DASHBOARD_USERNAME
+              valueFrom: { configMapKeyRef: { name: {{ include "nexa.fullname" . }}-config, key: DASHBOARD_USERNAME } }
+            - name: NUXT_DASHBOARD_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ include "nexa.fullname" . }}-secrets, key: DASHBOARD_PASSWORD } }
+            - name: NUXT_METABASE_ADMIN_EMAIL
+              valueFrom: { configMapKeyRef: { name: {{ include "nexa.fullname" . }}-config, key: METABASE_ADMIN_EMAIL } }
+            - name: NUXT_METABASE_ADMIN_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ include "nexa.fullname" . }}-secrets, key: METABASE_ADMIN_PASSWORD } }
           ports:
             - containerPort: 3000
           readinessProbe:
