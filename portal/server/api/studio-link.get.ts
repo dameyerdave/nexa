@@ -1,8 +1,5 @@
 export default defineEventHandler(async (event) => {
-  const user = await requireUser(event);
-  if (!user.roles.includes("dbadmin") && !user.isAdmin) {
-    throw createError({ statusCode: 403, statusMessage: "dbadmin role required" });
-  }
+  await requireDbAdmin(event);
 
   const config = useRuntimeConfig();
   const credential = await fetchStudioCredential();

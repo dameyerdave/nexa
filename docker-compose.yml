@@ -86,6 +86,16 @@ services:
       # via the Django admin afterwards, not by changing these.
       DASHBOARD_USERNAME: ${DASHBOARD_USERNAME}
       DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
+      # Used by roles.provisioning to create a project's Postgres schema
+      # and register it in Metabase - see README.md "Roles and access
+      # control" > Projects.
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      METABASE_URL: http://metabase:3000
+      METABASE_ADMIN_EMAIL: ${METABASE_ADMIN_EMAIL}
+      METABASE_ADMIN_PASSWORD: ${METABASE_ADMIN_PASSWORD}
 
   studio:
     container_name: supabase-studio

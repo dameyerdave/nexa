@@ -105,3 +105,16 @@ REST_FRAMEWORK = {
 # service-to-service plumbing (like SUPABASE_SERVICE_ROLE_KEY elsewhere in
 # this stack), not end-user access configuration.
 ROLES_API_TOKEN = os.environ.get("ROLES_API_TOKEN", "")
+
+# Used only by roles.provisioning to create a project's Postgres schema and
+# register it in Metabase - the same superuser credential
+# scripts/apply_dashboards.py uses from outside the cluster. See README.md
+# "Roles and access control" > Projects.
+POSTGRES_HOST = os.environ.get("POSTGRES_HOST", "db")
+POSTGRES_PORT = os.environ.get("POSTGRES_PORT", "5432")
+POSTGRES_DB = os.environ.get("POSTGRES_DB", "postgres")
+POSTGRES_SUPERUSER_PASSWORD = os.environ.get("POSTGRES_PASSWORD", "")
+
+METABASE_URL = os.environ.get("METABASE_URL", "http://metabase:3000")
+METABASE_ADMIN_EMAIL = os.environ.get("METABASE_ADMIN_EMAIL", "")
+METABASE_ADMIN_PASSWORD = os.environ.get("METABASE_ADMIN_PASSWORD", "")

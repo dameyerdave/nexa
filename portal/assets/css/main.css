@@ -226,6 +226,14 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+.admin-row-projects {
+  grid-template-columns: 1fr 1fr auto 1fr;
+}
+
+.admin-table-wide {
+  max-width: 760px;
+}
+
 .checkbox {
   display: flex;
   justify-content: center;

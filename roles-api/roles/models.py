@@ -59,3 +59,22 @@ class StudioCredential(models.Model):
 
     def __str__(self):
         return "Studio credential"
+
+
+class Project(models.Model):
+    """A self-service Postgres schema + matching Metabase database
+    connection, created from the portal's /admin/projects page by a
+    dbadmin. See roles/provisioning.py for what creating one actually does
+    to Postgres/Metabase - this row is just the record of it."""
+
+    name = models.CharField(max_length=100)
+    schema_name = models.CharField(max_length=63, unique=True)
+    metabase_database_id = models.IntegerField(null=True, blank=True)
+    created_by = models.EmailField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name

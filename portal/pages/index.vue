@@ -17,6 +17,10 @@
         <h2>{{ dataAnalyticsLabel }}</h2>
         <p>Explore dashboards and reports</p>
       </a>
+      <NuxtLink v-if="canAccessStudio" class="tile" to="/admin/projects">
+        <h2>Projects</h2>
+        <p>Create a new schema and connect it to Metabase</p>
+      </NuxtLink>
     </div>
   </div>
 </template>

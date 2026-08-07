@@ -54,3 +54,11 @@ export async function requireAdmin(event: H3Event): Promise<PortalUser> {
   }
   return user;
 }
+
+export async function requireDbAdmin(event: H3Event): Promise<PortalUser> {
+  const user = await requireUser(event);
+  if (!user.isAdmin && !user.roles.includes("dbadmin")) {
+    throw createError({ statusCode: 403, statusMessage: "dbadmin role required" });
+  }
+  return user;
+}

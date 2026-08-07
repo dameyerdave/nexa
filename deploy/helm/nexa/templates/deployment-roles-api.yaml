@@ -59,6 +59,24 @@ spec:
               valueFrom: { configMapKeyRef: { name: {{ include "nexa.fullname" . }}-config, key: DASHBOARD_USERNAME } }
             - name: DASHBOARD_PASSWORD
               valueFrom: { secretKeyRef: { name: {{ include "nexa.fullname" . }}-secrets, key: DASHBOARD_PASSWORD } }
+            # Used by roles.provisioning to create a project's Postgres
+            # schema and register it in Metabase - see README.md "Roles and
+            # access control" > Projects. "db"/"metabase" are the
+            # cluster-internal Service names (see statefulset-db.yaml /
+            # deployment-metabase.yaml), not templated - every other
+            # component reaches them the same way.
+            - { name: POSTGRES_HOST, value: db }
+            - name: POSTGRES_PORT
+              valueFrom: { configMapKeyRef: { name: {{ include "nexa.fullname" . }}-config, key: POSTGRES_PORT } }
+            - name: POSTGRES_DB
+              valueFrom: { configMapKeyRef: { name: {{ include "nexa.fullname" . }}-config, key: POSTGRES_DB } }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ include "nexa.fullname" . }}-secrets, key: POSTGRES_PASSWORD } }
+            - { name: METABASE_URL, value: http://metabase:3000 }
+            - name: METABASE_ADMIN_EMAIL
+              valueFrom: { configMapKeyRef: { name: {{ include "nexa.fullname" . }}-config, key: METABASE_ADMIN_EMAIL } }
+            - name: METABASE_ADMIN_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ include "nexa.fullname" . }}-secrets, key: METABASE_ADMIN_PASSWORD } }
           ports:
             - containerPort: 8000
           readinessProbe:

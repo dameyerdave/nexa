@@ -189,6 +189,20 @@ converges rather than duplicating):
 python3 scripts/setup_metabase_permissions.py
 ```
 
+### Projects
+
+For a quick empty schema rather than a full YAML app package (see "Data
+model apps" below), any `dbadmin` can create one from the portal's
+"Projects" tile (`/admin/projects`): give it a name and roles-api creates
+a matching Postgres schema (granted to `authenticated`, same
+`grant`/`alter default privileges` pattern every `apps/<id>` package
+hand-writes) and registers a Metabase database connection scoped to just
+that schema - no tables yet, an admin adds those via the Data Model
+tile's SQL editor, or later graduates the project into a real `apps/<id>`
+package if it needs RLS policies or dashboards. If the Metabase half
+fails (e.g. Metabase briefly unreachable) the schema is kept and the
+projects page offers a "Retry connect" button rather than losing it.
+
 ## Data model apps
 
 The actual Postgres schema (tables, relationships, RLS) and Metabase

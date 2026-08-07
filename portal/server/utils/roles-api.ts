@@ -43,3 +43,36 @@ export async function fetchStudioCredential(): Promise<{ username: string; passw
     headers: rolesApiHeaders(),
   });
 }
+
+export interface Project {
+  id: number;
+  name: string;
+  schema_name: string;
+  metabase_database_id: number | null;
+  created_by: string;
+  created_at: string;
+}
+
+export type ProjectWithMetabaseError = Project & { metabase_error: string | null };
+
+export async function listProjects(): Promise<Project[]> {
+  const config = useRuntimeConfig();
+  return $fetch<Project[]>(`${config.rolesApiUrl}/api/projects/`, { headers: rolesApiHeaders() });
+}
+
+export async function createProject(name: string, createdBy: string): Promise<ProjectWithMetabaseError> {
+  const config = useRuntimeConfig();
+  return $fetch<ProjectWithMetabaseError>(`${config.rolesApiUrl}/api/projects/`, {
+    method: "POST",
+    headers: rolesApiHeaders(),
+    body: { name, created_by: createdBy },
+  });
+}
+
+export async function retryProjectMetabase(id: number): Promise<ProjectWithMetabaseError> {
+  const config = useRuntimeConfig();
+  return $fetch<ProjectWithMetabaseError>(`${config.rolesApiUrl}/api/projects/${id}/retry-metabase/`, {
+    method: "POST",
+    headers: rolesApiHeaders(),
+  });
+}

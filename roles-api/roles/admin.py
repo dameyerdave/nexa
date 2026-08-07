@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import PortalUser, StudioCredential
+from .models import PortalUser, Project, StudioCredential
 
 
 @admin.register(PortalUser)
@@ -19,3 +19,9 @@ class StudioCredentialAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+@admin.register(Project)
+class ProjectAdmin(admin.ModelAdmin):
+    list_display = ("name", "schema_name", "metabase_database_id", "created_by", "created_at")
+    search_fields = ("name", "schema_name", "created_by")
