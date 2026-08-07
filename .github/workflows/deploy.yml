@@ -201,6 +201,9 @@ jobs:
             --set images.rolesApi.repository=${{ env.ROLES_API_IMAGE }} \
             --set images.rolesApi.tag=${{ needs.build-roles-api.outputs.tag }} \
             --set config.DJANGO_SUPERUSER_EMAIL="${{ vars.NEXA_ADMIN_EMAIL }}" \
+            --set config.GOOGLE_ENABLED=${{ vars.NEXA_GOOGLE_ENABLED == 'true' }} \
+            --set config.GOOGLE_CLIENT_ID="${{ vars.NEXA_GOOGLE_CLIENT_ID }}" \
+            --set config.GOOGLE_AUTH_ALLOWED_DOMAIN="${{ vars.NEXA_GOOGLE_AUTH_ALLOWED_DOMAIN }}" \
             --set global.domain="${{ github.event.inputs.domain || vars.NEXA_DOMAIN }}" \
             --set global.ingressEnabled=${{ (github.event.inputs.ingress_enabled || vars.NEXA_INGRESS_ENABLED) != 'false' }} \
             --set global.ingressClassName="${{ vars.NEXA_INGRESS_CLASS || 'nginx' }}" \

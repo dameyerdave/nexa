@@ -92,6 +92,11 @@ destinations.
    auto-provisioning to a Google Workspace domain.
 5. Restart: `docker compose up -d`.
 
+For the Kubernetes deploy, the same three settings are `NEXA_GOOGLE_ENABLED`
+/ `NEXA_GOOGLE_CLIENT_ID` / `NEXA_GOOGLE_AUTH_ALLOWED_DOMAIN` (GitHub Actions
+repo variables) and the `GOOGLE_SECRET` repo secret - see
+`deploy/README.md`.
+
 ### Adding more identity providers
 
 Supabase Auth supports a wide range of providers out of the box (GitHub,

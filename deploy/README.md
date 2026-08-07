@@ -101,6 +101,9 @@ need to be secrets.
 | `NEXA_INGRESS_ENABLED` | Set `false` if you have no Ingress controller (e.g. relying on `cloudflared` instead) | `true` |
 | `NEXA_TLS_TERMINATED_EXTERNALLY` | Set `true` when TLS is terminated somewhere this chart doesn't manage (e.g. Cloudflare's edge) so the computed public URLs still use `https://` | `false` |
 | `NEXA_CLOUDFLARED_ENABLED` | Set `true` to deploy the Cloudflare Tunnel client | `false` |
+| `NEXA_GOOGLE_ENABLED` | Set `true` to enable Google sign-in (see root README "Google SSO setup") - paired with the `GOOGLE_SECRET` secret above | `false` |
+| `NEXA_GOOGLE_CLIENT_ID` | OAuth 2.0 Client ID from Google Cloud Console | none |
+| `NEXA_GOOGLE_AUTH_ALLOWED_DOMAIN` | Restrict Metabase's Google sign-in/auto-provisioning to a Google Workspace domain | none (any Google account) |
 
 These four also exist as **inputs on the "Run workflow" manual-dispatch
 button** (Actions -> Deploy -> Run workflow), which override the repo
