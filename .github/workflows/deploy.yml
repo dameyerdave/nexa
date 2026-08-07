@@ -10,20 +10,23 @@ on:
         required: false
         type: string
       ingress_enabled:
-        description: "Create Ingress objects (set false if using cloudflared instead)"
+        description: "Create Ingress objects (set false if using cloudflared instead) - leave blank to use the NEXA_INGRESS_ENABLED repo variable"
         required: false
-        type: boolean
-        default: true
+        type: choice
+        options: ["", "true", "false"]
+        default: ""
       tls_terminated_externally:
-        description: "TLS is terminated outside this chart (e.g. Cloudflare) - public URLs use https://"
+        description: "TLS is terminated outside this chart (e.g. Cloudflare) - public URLs use https:// - leave blank to use the NEXA_TLS_TERMINATED_EXTERNALLY repo variable"
         required: false
-        type: boolean
-        default: false
+        type: choice
+        options: ["", "true", "false"]
+        default: ""
       cloudflared_enabled:
-        description: "Deploy the Cloudflare Tunnel client"
+        description: "Deploy the Cloudflare Tunnel client - leave blank to use the NEXA_CLOUDFLARED_ENABLED repo variable"
         required: false
-        type: boolean
-        default: false
+        type: choice
+        options: ["", "true", "false"]
+        default: ""
       clean_reinstall:
         description: "Uninstall the release first (keeps PVCs/data) - use if pods are stuck on a stale spec that a normal upgrade won't roll"
         required: false
