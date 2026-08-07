@@ -104,6 +104,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: azure/setup-helm@v4
 
+      # TEMPORARY debug step - remove once NEXA_CLOUDFLARED_ENABLED resolves
+      # correctly. Prints the raw value GitHub Actions sees for this repo
+      # variable in this job's context, wrapped in brackets so leading/
+      # trailing whitespace or unexpected casing is visible.
+      - name: DEBUG - print NEXA_CLOUDFLARED_ENABLED
+        run: echo "NEXA_CLOUDFLARED_ENABLED=[${{ vars.NEXA_CLOUDFLARED_ENABLED }}]"
+
       - name: Configure kubectl
         run: |
           mkdir -p "$HOME/.kube"
