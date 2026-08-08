@@ -277,7 +277,7 @@ jobs:
           os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
           django.setup()
           from django.test import Client
-          c = Client(raise_request_exception=False)
+          c = Client(raise_request_exception=True)
           for path in ['/api/portal-users/', '/api/projects/']:
               print(f'--- GET {path} ---')
               try:
