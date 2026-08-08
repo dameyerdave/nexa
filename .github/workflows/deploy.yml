@@ -264,35 +264,39 @@ jobs:
           # roles-api's readinessProbe is a bare TCP check - a pod can sit
           # at 1/1 Running while every request to it 500s (e.g. gunicorn up
           # but Django erroring per-request), which the non-Running/non-Ready
-          # loop above would never catch. Capture its current logs and a
-          # live self-request unconditionally so that failure mode isn't
-          # silently invisible here.
-          echo "### nexa-roles-api current logs (unconditional, tail 200) ###"
-          kubectl logs deployment/nexa-roles-api -n nexa --tail=200 || true
-          echo
-          echo "### nexa-roles-api self-test: GET /api/portal-users/ from inside its own pod ###"
+          # loop above would never catch. Use Django's test client (not an
+          # HTTP round trip through gunicorn) so an unhandled exception
+          # prints its real traceback instead of just a generic 500 page -
+          # DEBUG is off in production, which is exactly why the plain HTTP
+          # self-test below only ever showed "Server Error (500)" with no
+          # detail.
+          echo "### nexa-roles-api self-test via Django test client (full traceback on failure) ###"
           kubectl exec -n nexa deployment/nexa-roles-api -- python3 -c "
-          import os, urllib.error, urllib.request
-          req = urllib.request.Request(
-              'http://localhost:8000/api/portal-users/',
-              headers={'Authorization': f'Bearer {os.environ[\"ROLES_API_TOKEN\"]}'},
-          )
-          try:
-              print(urllib.request.urlopen(req, timeout=5).read().decode())
-          except urllib.error.HTTPError as e:
-              print(f'HTTP {e.code}:', e.read().decode())
-          except Exception as e:
-              print('ERROR:', e)
+          import os, traceback
+          import django
+          os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
+          django.setup()
+          from django.test import Client
+          c = Client(raise_request_exception=False)
+          for path in ['/api/portal-users/', '/api/projects/']:
+              print(f'--- GET {path} ---')
+              try:
+                  r = c.get(path, HTTP_AUTHORIZATION='Bearer ' + os.environ['ROLES_API_TOKEN'])
+                  print(r.status_code, r.content.decode()[:500])
+              except Exception:
+                  traceback.print_exc()
           " || true
           echo
-          echo "### nexa-portal self-test: same call via portal's own NUXT_ROLES_API_URL/TOKEN ###"
-          kubectl exec -n nexa deployment/nexa-portal -- node -e "
-          fetch(process.env.NUXT_ROLES_API_URL + '/api/portal-users/dameyerdave@gmail.com/', {
-            headers: { Authorization: 'Bearer ' + process.env.NUXT_ROLES_API_TOKEN },
-          })
-            .then(async (r) => { console.log(r.status); console.log(await r.text()); })
-            .catch((e) => console.log('ERROR', e));
+          echo "### nexa-roles-api sqlite schema (live PVC-backed db.sqlite3) ###"
+          kubectl exec -n nexa deployment/nexa-roles-api -- python3 -c "
+          import sqlite3
+          conn = sqlite3.connect('/app/data/db.sqlite3')
+          for row in conn.execute(\"select name, sql from sqlite_master where type='table' and name like 'roles_%'\"):
+              print(row)
           " || true
+          echo
+          echo "### nexa-roles-api current logs (unconditional, tail 200, after the self-test above) ###"
+          kubectl logs deployment/nexa-roles-api -n nexa --tail=200 || true
 
       - name: Remove the secrets file from the runner
         if: always()
