@@ -87,8 +87,10 @@ services:
       DASHBOARD_USERNAME: ${DASHBOARD_USERNAME}
       DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
       # Used by roles.provisioning to create a project's Postgres schema
-      # and register it in Metabase - see README.md "Roles and access
-      # control" > Projects.
+      # (via pg-meta, not a direct DB connection) and register it in
+      # Metabase, which does need the real connection details below - see
+      # README.md "Roles and access control" > Projects.
+      PG_META_URL: http://meta:8080
       POSTGRES_HOST: ${POSTGRES_HOST}
       POSTGRES_PORT: ${POSTGRES_PORT}
       POSTGRES_DB: ${POSTGRES_DB}

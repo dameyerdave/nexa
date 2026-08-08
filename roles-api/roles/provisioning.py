@@ -4,20 +4,28 @@ portal's /admin/projects page: a new Postgres schema (granted to
 package hand-writes - see apps/README.md) and a matching Metabase database
 connection scoped to just that schema. No starter tables - an admin adds
 those afterwards via Studio, or later graduates the project into a real
-apps/<id> YAML package if it needs RLS policies or dashboards."""
+apps/<id> YAML package if it needs RLS policies or dashboards.
+
+Schema creation goes through pg-meta (the same internal service Supabase
+Studio's own SQL editor uses - see deployment-meta.yaml) rather than a
+direct Postgres connection of roles-api's own, so this service doesn't
+need a Postgres client library or its own DB session handling. Metabase
+still needs a real `host`/`port`/`dbname`/`password` connection (pg-meta
+has no bearing on that), which is why POSTGRES_* settings are still read
+below - only for building that `details` payload, never to connect
+directly."""
 
 import json
 import re
 import urllib.error
 import urllib.request
 
-import psycopg2
 from django.conf import settings
 
 
 class ProvisioningError(Exception):
     """Raised for anything that should surface as an error to the portal -
-    an invalid/colliding name, or a downstream Postgres failure."""
+    an invalid/colliding name, or a downstream Postgres/Metabase failure."""
 
 
 def slugify_schema_name(raw: str) -> str:
@@ -31,43 +39,45 @@ def slugify_schema_name(raw: str) -> str:
     return name[:63]
 
 
-def _pg_connect():
+def _meta_query(sql: str):
+    req = urllib.request.Request(
+        f"{settings.PG_META_URL.rstrip('/')}/query",
+        data=json.dumps({"query": sql}).encode(),
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
     try:
-        return psycopg2.connect(
-            host=settings.POSTGRES_HOST,
-            port=settings.POSTGRES_PORT,
-            dbname=settings.POSTGRES_DB,
-            user="postgres",
-            password=settings.POSTGRES_SUPERUSER_PASSWORD,
-        )
-    except psycopg2.Error as e:
-        raise ProvisioningError(f"Could not reach Postgres: {e}") from e
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw = resp.read()
+            return json.loads(raw) if raw else None
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()
+        try:
+            detail = json.loads(body).get("error", body)
+        except json.JSONDecodeError:
+            detail = body
+        raise ProvisioningError(f"Postgres error: {detail}") from e
+    except urllib.error.URLError as e:
+        raise ProvisioningError(f"Could not reach Postgres (via pg-meta): {e.reason}") from e
 
 
 def _create_schema(schema_name: str) -> None:
-    with _pg_connect() as conn:
-        try:
-            conn.autocommit = True
-            with conn.cursor() as cur:
-                cur.execute("select 1 from pg_namespace where nspname = %s", (schema_name,))
-                if cur.fetchone():
-                    raise ProvisioningError(f"A Postgres schema named '{schema_name}' already exists.")
-                # Identifiers can't be parameterized, but schema_name only
-                # ever contains [a-z0-9_] (see slugify_schema_name above) -
-                # it's never raw user input by the time it gets here.
-                cur.execute(f'create schema "{schema_name}"')
-                cur.execute(f'grant usage on schema "{schema_name}" to authenticated')
-                cur.execute(
-                    f'grant select, insert, update, delete on all tables in schema "{schema_name}" to authenticated'
-                )
-                cur.execute(
-                    f'alter default privileges in schema "{schema_name}" '
-                    "grant select, insert, update, delete on tables to authenticated"
-                )
-        except psycopg2.Error as e:
-            raise ProvisioningError(f"Postgres error while creating schema '{schema_name}': {e}") from e
-        finally:
-            conn.close()
+    # No pre-check for an existing schema of this name - `create schema`
+    # (no IF NOT EXISTS) fails loudly via pg-meta if it's already taken,
+    # which _meta_query turns into a ProvisioningError. pg-meta runs the
+    # whole query string as one implicit transaction, so a failure on any
+    # later statement rolls back the schema creation too.
+    #
+    # Identifiers can't be parameterized, but schema_name only ever
+    # contains [a-z0-9_] (see slugify_schema_name above) - it's never raw
+    # user input by the time it gets here.
+    _meta_query(
+        f'create schema "{schema_name}"; '
+        f'grant usage on schema "{schema_name}" to authenticated; '
+        f'grant select, insert, update, delete on all tables in schema "{schema_name}" to authenticated; '
+        f'alter default privileges in schema "{schema_name}" '
+        "grant select, insert, update, delete on tables to authenticated;"
+    )
 
 
 class _Metabase:

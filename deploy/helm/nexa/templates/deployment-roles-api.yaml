@@ -60,11 +60,15 @@ spec:
             - name: DASHBOARD_PASSWORD
               valueFrom: { secretKeyRef: { name: {{ include "nexa.fullname" . }}-secrets, key: DASHBOARD_PASSWORD } }
             # Used by roles.provisioning to create a project's Postgres
-            # schema and register it in Metabase - see README.md "Roles and
-            # access control" > Projects. "db"/"metabase" are the
-            # cluster-internal Service names (see statefulset-db.yaml /
-            # deployment-metabase.yaml), not templated - every other
-            # component reaches them the same way.
+            # schema (via pg-meta, the same internal service Studio's SQL
+            # editor uses - no direct DB connection of roles-api's own) and
+            # register it in Metabase, which does need the real connection
+            # details below - see README.md "Roles and access control" >
+            # Projects. "db"/"meta"/"metabase" are the cluster-internal
+            # Service names (see statefulset-db.yaml /
+            # deployment-meta.yaml / deployment-metabase.yaml), not
+            # templated - every other component reaches them the same way.
+            - { name: PG_META_URL, value: http://meta:8080 }
             - { name: POSTGRES_HOST, value: db }
             - name: POSTGRES_PORT
               valueFrom: { configMapKeyRef: { name: {{ include "nexa.fullname" . }}-config, key: POSTGRES_PORT } }

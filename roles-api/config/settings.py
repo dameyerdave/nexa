@@ -106,10 +106,13 @@ REST_FRAMEWORK = {
 # this stack), not end-user access configuration.
 ROLES_API_TOKEN = os.environ.get("ROLES_API_TOKEN", "")
 
-# Used only by roles.provisioning to create a project's Postgres schema and
-# register it in Metabase - the same superuser credential
-# scripts/apply_dashboards.py uses from outside the cluster. See README.md
-# "Roles and access control" > Projects.
+# Used only by roles.provisioning to create a project's Postgres schema
+# (via pg-meta, not a direct connection) and register it in Metabase (which
+# does need the real superuser credential below - the same one
+# scripts/apply_dashboards.py uses from outside the cluster). See
+# README.md "Roles and access control" > Projects.
+PG_META_URL = os.environ.get("PG_META_URL", "http://meta:8080")
+
 POSTGRES_HOST = os.environ.get("POSTGRES_HOST", "db")
 POSTGRES_PORT = os.environ.get("POSTGRES_PORT", "5432")
 POSTGRES_DB = os.environ.get("POSTGRES_DB", "postgres")
