@@ -221,6 +221,99 @@ h1 {
   text-align: center;
 }
 
+.audit-filters {
+  align-items: stretch;
+  width: 100%;
+  max-width: 960px;
+  gap: 0.85rem;
+}
+
+.audit-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.audit-filter-row select,
+.audit-filter-row input[type="text"] {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--fg);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+}
+
+.audit-date-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.audit-date-label input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--fg);
+  padding: 0.4rem 0.6rem;
+}
+
+.audit-tz-hint {
+  margin-left: auto;
+}
+
+.audit-table-wrap {
+  width: 100%;
+  max-width: 960px;
+  overflow-x: auto;
+}
+
+.audit-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.audit-table th,
+.audit-table td {
+  text-align: left;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.audit-row {
+  cursor: pointer;
+}
+
+.audit-row:hover {
+  background: var(--card);
+}
+
+.audit-detail-row td {
+  white-space: normal;
+  background: var(--card);
+}
+
+.audit-detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.audit-detail pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  font-size: 0.8rem;
+  max-width: 420px;
+  overflow-x: auto;
+}
+
 .admin-body {
   flex: 1;
   overflow-y: auto;

@@ -96,11 +96,33 @@ export async function restSelectColumn(table: string, column: string): Promise<u
 }
 
 /** Runs an arbitrary PostgREST GET, e.g. restSelect("t", "id=eq.1&limit=1") -
- * `query` is a raw querystring, not user input in current callers (always
- * built from server-controlled ids), so no escaping is done here. */
+ * `query` is a raw querystring assembled by the caller. Where a fragment
+ * embeds a user-supplied value (e.g. the audit log's filters), the caller
+ * must encodeURIComponent() that value itself before splicing it in - this
+ * function does no escaping of its own. */
 export async function restSelect<T = Record<string, unknown>>(table: string, query: string): Promise<T[]> {
   try {
     return await $fetch<T[]>(`${restBaseUrl()}/${table}?${query}`, { headers: restHeaders() });
+  } catch (err: any) {
+    restError(err);
+  }
+}
+
+/** Same as restSelect, but also returns the total row count matching the
+ * filters (ignoring limit/offset) via PostgREST's exact-count Prefer
+ * header - used to render "X of Y" pagination without a second query. */
+export async function restSelectWithCount<T = Record<string, unknown>>(
+  table: string,
+  query: string,
+): Promise<{ rows: T[]; total: number }> {
+  try {
+    const res = await $fetch.raw<T[]>(`${restBaseUrl()}/${table}?${query}`, {
+      headers: restHeaders({ Prefer: "count=exact" }),
+    });
+    const rows = res._data ?? [];
+    const range = res.headers.get("content-range"); // e.g. "0-49/123"
+    const total = Number(range?.split("/")[1]);
+    return { rows, total: Number.isFinite(total) ? total : rows.length };
   } catch (err: any) {
     restError(err);
   }

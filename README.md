@@ -275,7 +275,16 @@ Every row change to any table in the `public` schema (except the portal's
 own `portal_*` bookkeeping tables) is logged to `audit_log` - who changed
 what, when, and the old/new row data - regardless of whether the change
 came from Import Excel or directly from an editor poking around in the
-embedded Studio.
+embedded Studio. Admins can browse it at **Audit log** in the portal
+header (`portal/pages/admin/audit.vue`) - filterable by table, operation
+(insert/update/delete), who made the change, a date range, and free-text
+search across the before/after row data, with pagination (`GET
+/api/admin/audit`, `portal/server/api/admin/audit.get.ts`). The free-text
+search relies on PostgREST's ability to cast a jsonb column to text inside
+an `or=(...)` filter (`old_data::text.ilike.*term*`) - unverified against
+a live instance like the other PostgREST specifics on this page; if it
+turns out not to be supported, that one filter errors out rather than the
+rest of the page breaking.
 
 **Schema side** (`volumes/db/audit.sql`, self-healing copy in
 `portal/server/utils/audit-store.ts` for deployments that predate this

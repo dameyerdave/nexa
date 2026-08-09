@@ -10,7 +10,10 @@
           <button class="link-btn" type="button" :disabled="view === 'studio'" @click="onShowStudio">Database</button>
           <NuxtLink class="link-btn" to="/import">Import Excel</NuxtLink>
         </template>
-        <NuxtLink v-if="user?.isAdmin" class="link-btn" to="/admin/registrations">Registrations</NuxtLink>
+        <template v-if="user?.isAdmin">
+          <NuxtLink class="link-btn" to="/admin/registrations">Registrations</NuxtLink>
+          <NuxtLink class="link-btn" to="/admin/audit">Audit log</NuxtLink>
+        </template>
         <button class="link-btn" type="button" @click="onSignOut">Sign out</button>
       </nav>
     </header>
