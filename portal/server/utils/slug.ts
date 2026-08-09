@@ -16,10 +16,10 @@ export function slugify(raw: string, fallback = "column"): string {
 
 /** Slugifies a list of names and appends _2, _3, ... to any that collide
  * after slugifying (e.g. two spreadsheet columns named "Name" and "name"). */
-export function slugifyUnique(names: string[], fallbackPrefix = "column"): string[] {
+export function slugifyUnique(names: string[]): string[] {
   const seen = new Map<string, number>();
   return names.map((raw, i) => {
-    const base = slugify(raw, `${fallbackPrefix}_${i + 1}`);
+    const base = slugify(raw, `column_${i + 1}`);
     const count = seen.get(base) ?? 0;
     seen.set(base, count + 1);
     return count === 0 ? base : `${base}_${count + 1}`;

@@ -13,3 +13,19 @@ export async function pgMetaQuery(sql: string): Promise<unknown> {
     throw createError({ statusCode: 502, statusMessage: `Postgres error: ${detail}` });
   }
 }
+
+export interface ColumnDef {
+  name: string;
+  sqlType: string;
+}
+
+/** Creates a table with an identity primary key plus the given columns,
+ * granted to `authenticated` - no IF NOT EXISTS, so a name collision fails
+ * loudly via pgMetaQuery's error handling instead of silently no-op'ing. */
+export async function createTable(schema: string, table: string, columns: ColumnDef[]): Promise<void> {
+  const columnsSql = columns.map((c) => `"${c.name}" ${c.sqlType}`).join(", ");
+  await pgMetaQuery(
+    `create table "${schema}"."${table}" (row_id bigint generated always as identity primary key, ${columnsSql}); ` +
+      `grant select, insert, update, delete on "${schema}"."${table}" to authenticated;`,
+  );
+}

@@ -1,39 +1,6 @@
 import ExcelJS from "exceljs";
 
-interface ColumnDef {
-  name: string;
-  sqlType: string;
-}
-
-function cellToValue(cell: ExcelJS.Cell): string | number | boolean | Date | null {
-  const v = cell.value;
-  if (v === null || v === undefined) return null;
-  if (v instanceof Date) return v;
-  if (typeof v === "object") {
-    const obj = v as Record<string, unknown>;
-    if (Array.isArray(obj.richText)) {
-      return (obj.richText as Array<{ text: string }>).map((r) => r.text).join("");
-    }
-    if ("result" in obj) {
-      const r = obj.result;
-      return r instanceof Date || typeof r === "number" || typeof r === "boolean" || typeof r === "string"
-        ? r
-        : String(r);
-    }
-    if ("text" in obj) return String(obj.text);
-    return String(v);
-  }
-  return v as string | number | boolean;
-}
-
-function inferSqlType(values: unknown[]): string {
-  const nonNull = values.filter((v) => v !== null && v !== undefined && v !== "");
-  if (nonNull.length === 0) return "text";
-  if (nonNull.every((v) => v instanceof Date)) return "timestamptz";
-  if (nonNull.every((v) => typeof v === "boolean")) return "boolean";
-  if (nonNull.every((v) => typeof v === "number" && Number.isFinite(v))) return "double precision";
-  return "text";
-}
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024; // 20MB - a soft cap on the buffered file, not a streaming limit
 
 export default defineEventHandler(async (event) => {
   await requireUser(event);
@@ -42,6 +9,9 @@ export default defineEventHandler(async (event) => {
   const filePart = parts?.find((p) => p.filename);
   if (!filePart) {
     throw createError({ statusCode: 400, statusMessage: "No file uploaded" });
+  }
+  if (filePart.data.length > MAX_UPLOAD_BYTES) {
+    throw createError({ statusCode: 413, statusMessage: `File too large - max ${MAX_UPLOAD_BYTES / 1024 / 1024}MB` });
   }
   const requestedName = parts?.find((p) => p.name === "tableName")?.data.toString("utf-8").trim();
 
@@ -66,10 +36,9 @@ export default defineEventHandler(async (event) => {
     headers[colNumber - 1] = cell.value ? String(cell.value) : `column_${colNumber}`;
   });
 
-  const rows: unknown[][] = [];
+  const rows: ReturnType<typeof cellToValue>[][] = [];
   for (let r = 2; r <= sheet.rowCount; r++) {
     const row = sheet.getRow(r);
-    if (row.cellCount === 0) continue;
     const values = headers.map((_, i) => cellToValue(row.getCell(i + 1)));
     if (values.every((v) => v === null)) continue; // skip fully-blank rows
     rows.push(values);
@@ -79,34 +48,16 @@ export default defineEventHandler(async (event) => {
   }
 
   const columnNames = slugifyUnique(headers);
-  const columns: ColumnDef[] = columnNames.map((name, i) => ({
-    name,
-    sqlType: inferSqlType(rows.map((row) => row[i])),
-  }));
+  const columnTypes = inferColumnTypes(rows, columnNames.length);
+  const columns = columnNames.map((name, i) => ({ name, sqlType: columnTypes[i] }));
 
   const baseName = requestedName || filePart.filename!.replace(/\.[^.]+$/, "");
   const tableName = slugify(baseName, "import");
 
-  // No existence pre-check - `create table` (no IF NOT EXISTS) fails
-  // loudly via pg-meta if the name is taken, which pgMetaQuery turns into
-  // a clean error instead of a silent overwrite.
-  const columnsSql = columns.map((c) => `"${c.name}" ${c.sqlType}`).join(", ");
-  await pgMetaQuery(
-    `create table "public"."${tableName}" (row_id bigint generated always as identity primary key, ${columnsSql}); ` +
-      `grant select, insert, update, delete on "public"."${tableName}" to authenticated;`,
-  );
+  await createTable("public", tableName, columns);
 
-  const config = useRuntimeConfig();
   const records = rows.map((row) => Object.fromEntries(columns.map((c, i) => [c.name, row[i]])));
-  await $fetch(`${config.public.supabaseUrl}/rest/v1/${tableName}`, {
-    method: "POST",
-    headers: {
-      apikey: config.serviceRoleKey,
-      Authorization: `Bearer ${config.serviceRoleKey}`,
-      Prefer: "return=minimal",
-    },
-    body: records,
-  });
+  await restInsert(tableName, records);
 
-  return { table: tableName, columns: columns.map((c) => c.name), rowCount: rows.length };
+  return { table: tableName, columns: columnNames, rowCount: rows.length };
 });
