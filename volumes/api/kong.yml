@@ -465,3 +465,38 @@ services:
       - name: basic-auth
         config:
           hide_credentials: true
+
+  ## Metabase - served on its OWN listener (net.dst.port 8002, published as
+  ## ${KONG_METABASE_PORT:-8002}), not a subpath of the routes above: like
+  ## Studio, Metabase's frontend assumes it's served at the root of its own
+  ## origin, so it can't share port 8000's "/" catch-all with Studio.
+  ##
+  ## The portal is the only intended way to log in - it calls Metabase's
+  ## POST /api/session directly over the internal Docker network
+  ## (http://metabase:3000/api/session), which never touches Kong at all.
+  ## This route exists to stop anyone else from reaching that same login
+  ## endpoint through the *published* port and bypassing the portal's 2FA
+  ## step entirely. Session cookies from a login the portal already
+  ## completed still work fine here - only issuing a *new* session from
+  ## outside is blocked.
+  - name: metabase-session-block
+    _comment: 'Metabase: block POST /api/session on the published port - login only happens via the portal, server-to-server'
+    url: http://metabase:3000/api/session
+    routes:
+      - name: metabase-session-block-route
+        expression: 'net.dst.port == 8002 && http.path == "/api/session" && http.method == "POST"'
+        priority: 1000
+    plugins:
+      - name: request-termination
+        config:
+          status_code: 403
+          message: "Direct sign-in is disabled - sign in through the portal."
+
+  - name: metabase
+    _comment: 'Metabase: net.dst.port 8002 -> http://metabase:3000/* (unchanged path - see comment above)'
+    url: http://metabase:3000/
+    routes:
+      - name: metabase-all
+        expression: 'net.dst.port == 8002'
+    plugins:
+      - name: cors

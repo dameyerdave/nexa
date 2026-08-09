@@ -1,5 +1,5 @@
 export default defineEventHandler(async (event) => {
-  await requireUser(event);
+  await requireEditor(event);
 
   const config = useRuntimeConfig();
   const url = new URL(config.public.supabaseUrl);

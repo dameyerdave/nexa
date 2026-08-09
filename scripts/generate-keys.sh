@@ -125,4 +125,4 @@ sed \
     .env
 
 rm -f .env.old
-echo "Done. Review .env, then fill in GOOGLE_CLIENT_ID / GOOGLE_SECRET if you want Google sign-in (see README.md)."
+echo "Done. Review .env, then set up Metabase accounts/groups and fill in METABASE_ADMIN_EMAIL / METABASE_ADMIN_PASSWORD (see README.md \"Quick start\")."

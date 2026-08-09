@@ -3,7 +3,7 @@ import ExcelJS from "exceljs";
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024; // 20MB - a soft cap on the buffered file, not a streaming limit
 
 export default defineEventHandler(async (event) => {
-  await requireUser(event);
+  await requireEditor(event);
 
   const parts = await readMultipartFormData(event);
   const filePart = parts?.find((p) => p.filename);

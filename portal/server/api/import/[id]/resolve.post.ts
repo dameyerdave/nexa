@@ -1,5 +1,5 @@
 export default defineEventHandler(async (event) => {
-  await requireUser(event);
+  await requireEditor(event);
 
   const id = getRouterParam(event, "id")!;
   const pending = getPendingImport(id);

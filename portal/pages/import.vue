@@ -77,7 +77,6 @@
 <script setup lang="ts">
 const config = useRuntimeConfig();
 const appName = config.public.appName;
-const { apiFetch } = useApi();
 
 interface Conflict {
   importId: string;
@@ -139,7 +138,7 @@ async function onUpload() {
   if (tableName.value.trim()) body.append("tableName", tableName.value.trim());
 
   try {
-    const res = await apiFetch<
+    const res = await $fetch<
       | { status: "created"; table: string; columns: string[]; rowCount: number }
       | { status: "exists"; importId: string; table: string; columns: string[]; rowCount: number }
     >("/api/import", { method: "POST", body });
@@ -162,7 +161,7 @@ async function onOverride() {
   loading.value = true;
   error.value = "";
   try {
-    const res = await apiFetch<{ table: string; columns: string[]; rowCount: number }>(
+    const res = await $fetch<{ table: string; columns: string[]; rowCount: number }>(
       `/api/import/${conflict.value.importId}/override`,
       { method: "POST" },
     );
@@ -179,7 +178,7 @@ async function onCheckDuplicates() {
   loading.value = true;
   error.value = "";
   try {
-    resolution.value = await apiFetch<Resolution>(`/api/import/${conflict.value.importId}/append`, {
+    resolution.value = await $fetch<Resolution>(`/api/import/${conflict.value.importId}/append`, {
       method: "POST",
       body: { keyColumn: keyColumn.value },
     });
@@ -197,7 +196,7 @@ async function onResolve() {
   loading.value = true;
   error.value = "";
   try {
-    const res = await apiFetch<{ table: string; upsertedCount: number; skippedCount: number }>(
+    const res = await $fetch<{ table: string; upsertedCount: number; skippedCount: number }>(
       `/api/import/${resolution.value.importId}/resolve`,
       { method: "POST", body: { overwriteKeys: [...selectedKeys.value] } },
     );

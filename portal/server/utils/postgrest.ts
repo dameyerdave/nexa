@@ -58,3 +58,39 @@ export async function restSelectColumn(table: string, column: string): Promise<u
   }
   return values;
 }
+
+/** Runs an arbitrary PostgREST GET, e.g. restSelect("t", "id=eq.1&limit=1") -
+ * `query` is a raw querystring, not user input in current callers (always
+ * built from server-controlled ids), so no escaping is done here. */
+export async function restSelect<T = Record<string, unknown>>(table: string, query: string): Promise<T[]> {
+  try {
+    return await $fetch<T[]>(`${useRuntimeConfig().public.supabaseUrl}/rest/v1/${table}?${query}`, {
+      headers: restHeaders(),
+    });
+  } catch (err: any) {
+    restError(err);
+  }
+}
+
+export async function restUpdate(table: string, query: string, patch: Record<string, unknown>): Promise<void> {
+  try {
+    await $fetch(`${useRuntimeConfig().public.supabaseUrl}/rest/v1/${table}?${query}`, {
+      method: "PATCH",
+      headers: restHeaders({ Prefer: "return=minimal" }),
+      body: patch,
+    });
+  } catch (err: any) {
+    restError(err);
+  }
+}
+
+export async function restDelete(table: string, query: string): Promise<void> {
+  try {
+    await $fetch(`${useRuntimeConfig().public.supabaseUrl}/rest/v1/${table}?${query}`, {
+      method: "DELETE",
+      headers: restHeaders({ Prefer: "return=minimal" }),
+    });
+  } catch (err: any) {
+    restError(err);
+  }
+}

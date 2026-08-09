@@ -1,61 +1,36 @@
-import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
-
-let client: SupabaseClient | null = null;
-
-function getClient(): SupabaseClient {
-  if (client) return client;
-  const config = useRuntimeConfig();
-  client = createClient(config.public.supabaseUrl, config.public.supabaseAnonKey);
-  return client;
+export interface CurrentUser {
+  email: string;
+  isEditor: boolean;
 }
 
+/** Auth state is entirely cookie-based now (Metabase's own session cookie,
+ * set by server/api/auth/verify.post.ts) - there's no client-side token to
+ * hold, just "does the browser currently have a valid one", answered by
+ * asking the portal's own /api/me. The multi-step login itself (password,
+ * then 2FA) is handled directly in pages/login.vue, not here - it's
+ * page-specific flow state, not app-wide auth state. */
 export function useAuth() {
-  const session = useState<Session | null>("auth-session", () => null);
+  const user = useState<CurrentUser | null>("auth-user", () => null);
   const ready = useState<boolean>("auth-ready", () => false);
-  const supabase = getClient();
+
+  async function refresh() {
+    try {
+      user.value = await $fetch<CurrentUser>("/api/me");
+    } catch {
+      user.value = null;
+    }
+  }
 
   async function init() {
     if (ready.value) return;
-    const { data } = await supabase.auth.getSession();
-    session.value = data.session;
+    await refresh();
     ready.value = true;
-    supabase.auth.onAuthStateChange((_event, newSession) => {
-      session.value = newSession;
-    });
-  }
-
-  async function signInWithGoogle() {
-    const redirectTo = `${window.location.origin}/auth/callback`;
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo },
-    });
-    if (error) throw error;
-  }
-
-  async function signInWithPassword(email: string, password: string) {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw error;
-  }
-
-  async function signUpWithPassword(email: string, password: string) {
-    const { data, error } = await supabase.auth.signUp({ email, password });
-    if (error) throw error;
-    return { needsEmailConfirmation: !data.session };
   }
 
   async function signOut() {
-    await supabase.auth.signOut();
-    session.value = null;
+    await $fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+    user.value = null;
   }
 
-  return {
-    session,
-    ready,
-    init,
-    signInWithGoogle,
-    signInWithPassword,
-    signUpWithPassword,
-    signOut,
-  };
+  return { user, ready, init, refresh, signOut };
 }

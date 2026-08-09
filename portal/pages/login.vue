@@ -2,46 +2,83 @@
   <div class="page">
     <div class="card">
       <img class="logo" src="~/assets/img/logo.svg" :alt="appName" />
-      <p class="subtitle">{{ mode === "signup" ? "Create an account" : "Sign in to continue" }}</p>
 
-      <button v-if="googleEnabled" class="google-btn" type="button" :disabled="loading" @click="onGoogleSignIn">
-        <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
-          <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.62z" />
-          <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.95v2.33A9 9 0 0 0 9 18z" />
-          <path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 0 1 3.67 9c0-.59.1-1.17.28-1.7V4.97H.95A9 9 0 0 0 0 9c0 1.45.35 2.83.95 4.03l3-2.33z" />
-          <path fill="#EA4335" d="M9 3.58c1.32 0 2.51.46 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .95 4.97l3 2.33C4.66 5.17 6.65 3.58 9 3.58z" />
-        </svg>
-        Sign in with Google
-      </button>
-      <div v-if="googleEnabled" class="divider"><span>or</span></div>
+      <template v-if="step === 'credentials'">
+        <p class="subtitle">Sign in to continue</p>
+        <form class="form" @submit.prevent="onSubmitCredentials">
+          <input v-model="username" type="text" autocomplete="username" placeholder="Username or email" required />
+          <input
+            v-model="password"
+            type="password"
+            autocomplete="current-password"
+            placeholder="Password"
+            required
+          />
+          <button class="primary-btn" type="submit" :disabled="loading">
+            {{ loading ? "Please wait…" : "Sign in" }}
+          </button>
+        </form>
+        <p class="info">Accounts are created by an admin in Metabase - there's no self-service sign-up here.</p>
+      </template>
 
-      <form class="form" @submit.prevent="onSubmit">
-        <input
-          v-model="email"
-          type="email"
-          autocomplete="email"
-          placeholder="Email"
-          required
-        />
-        <input
-          v-model="password"
-          type="password"
-          :autocomplete="mode === 'signup' ? 'new-password' : 'current-password'"
-          placeholder="Password"
-          minlength="6"
-          required
-        />
-        <button class="primary-btn" type="submit" :disabled="loading">
-          {{ loading ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in" }}
+      <template v-else-if="step === 'enroll'">
+        <p class="subtitle">Set up two-factor authentication</p>
+        <p class="info">Scan this with an authenticator app (Google Authenticator, 1Password, Authy, ...):</p>
+        <img class="qr-code" :src="enrollment!.qr" alt="2FA enrollment QR code" />
+        <p class="info">Can't scan it? Enter this code manually: <code>{{ enrollment!.secret }}</code></p>
+        <form class="form" @submit.prevent="onConfirmEnrollment">
+          <input
+            v-model="code"
+            type="text"
+            inputmode="numeric"
+            autocomplete="one-time-code"
+            placeholder="6-digit code"
+            required
+          />
+          <button class="primary-btn" type="submit" :disabled="loading">
+            {{ loading ? "Verifying…" : "Confirm" }}
+          </button>
+        </form>
+      </template>
+
+      <template v-else-if="step === 'verify'">
+        <p class="subtitle">Enter your 2FA code</p>
+        <form v-if="!useRecoveryCode" class="form" @submit.prevent="onVerifyCode">
+          <input
+            v-model="code"
+            type="text"
+            inputmode="numeric"
+            autocomplete="one-time-code"
+            placeholder="6-digit code"
+            required
+          />
+          <button class="primary-btn" type="submit" :disabled="loading">
+            {{ loading ? "Verifying…" : "Verify" }}
+          </button>
+        </form>
+        <form v-else class="form" @submit.prevent="onVerifyRecoveryCode">
+          <input v-model="recoveryCode" type="text" autocomplete="off" placeholder="Recovery code" required />
+          <button class="primary-btn" type="submit" :disabled="loading">
+            {{ loading ? "Verifying…" : "Use recovery code" }}
+          </button>
+        </form>
+        <button class="link-btn" type="button" @click="useRecoveryCode = !useRecoveryCode">
+          {{ useRecoveryCode ? "Use my authenticator app instead" : "Lost your device? Use a recovery code" }}
         </button>
-      </form>
+      </template>
 
-      <button class="link-btn" type="button" @click="toggleMode">
-        {{ mode === "signup" ? "Already have an account? Sign in" : "No account yet? Create one" }}
-      </button>
+      <template v-else-if="step === 'recovery-codes'">
+        <p class="subtitle">Save your recovery codes</p>
+        <p class="info">
+          Each code works once, if you ever lose access to your authenticator app. They're shown only this once.
+        </p>
+        <div class="recovery-codes">
+          <code v-for="c in recoveryCodes" :key="c">{{ c }}</code>
+        </div>
+        <button class="primary-btn" type="button" @click="onFinish">I've saved these - continue</button>
+      </template>
 
       <p v-if="error" class="error">{{ error }}</p>
-      <p v-if="info" class="info">{{ info }}</p>
     </div>
   </div>
 </template>
@@ -49,54 +86,82 @@
 <script setup lang="ts">
 const config = useRuntimeConfig();
 const appName = config.public.appName;
-const googleEnabled = config.public.googleEnabled;
-const { signInWithGoogle, signInWithPassword, signUpWithPassword } = useAuth();
+const { refresh } = useAuth();
 const router = useRouter();
 
-const mode = ref<"signin" | "signup">("signin");
-const email = ref("");
+type Step = "credentials" | "enroll" | "verify" | "recovery-codes";
+
+const step = ref<Step>("credentials");
+const username = ref("");
 const password = ref("");
+const code = ref("");
+const recoveryCode = ref("");
+const useRecoveryCode = ref(false);
 const loading = ref(false);
 const error = ref("");
-const info = ref("");
 
-async function onGoogleSignIn() {
+const loginId = ref("");
+const enrollment = ref<{ qr: string; secret: string } | null>(null);
+const recoveryCodes = ref<string[]>([]);
+
+async function onSubmitCredentials() {
   loading.value = true;
   error.value = "";
   try {
-    await signInWithGoogle();
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : "Something went wrong";
-    loading.value = false;
-  }
-}
+    const res = await $fetch<
+      | { status: "enroll"; loginId: string; qr: string; secret: string }
+      | { status: "verify"; loginId: string }
+    >("/api/auth/login", { method: "POST", body: { username: username.value, password: password.value } });
 
-function toggleMode() {
-  mode.value = mode.value === "signin" ? "signup" : "signin";
-  error.value = "";
-  info.value = "";
-}
-
-async function onSubmit() {
-  loading.value = true;
-  error.value = "";
-  info.value = "";
-  try {
-    if (mode.value === "signup") {
-      const { needsEmailConfirmation } = await signUpWithPassword(email.value, password.value);
-      if (needsEmailConfirmation) {
-        info.value = "Account created. Check your email to confirm before signing in.";
-        loading.value = false;
-        return;
-      }
+    loginId.value = res.loginId;
+    if (res.status === "enroll") {
+      enrollment.value = { qr: res.qr, secret: res.secret };
+      step.value = "enroll";
     } else {
-      await signInWithPassword(email.value, password.value);
+      step.value = "verify";
     }
-    router.replace("/");
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : "Something went wrong";
+  } catch (e: any) {
+    error.value = e?.data?.statusMessage || (e instanceof Error ? e.message : "Sign in failed");
   } finally {
     loading.value = false;
   }
+}
+
+async function submitCode(body: Record<string, unknown>) {
+  loading.value = true;
+  error.value = "";
+  try {
+    const res = await $fetch<{ status: "ok"; recoveryCodes?: string[] }>("/api/auth/verify", {
+      method: "POST",
+      body: { loginId: loginId.value, ...body },
+    });
+    if (res.recoveryCodes?.length) {
+      recoveryCodes.value = res.recoveryCodes;
+      step.value = "recovery-codes";
+    } else {
+      await onFinish();
+    }
+  } catch (e: any) {
+    error.value = e?.data?.statusMessage || (e instanceof Error ? e.message : "Verification failed");
+  } finally {
+    loading.value = false;
+  }
+}
+
+function onConfirmEnrollment() {
+  return submitCode({ code: code.value });
+}
+
+function onVerifyCode() {
+  return submitCode({ code: code.value });
+}
+
+function onVerifyRecoveryCode() {
+  return submitCode({ recoveryCode: recoveryCode.value });
+}
+
+async function onFinish() {
+  await refresh();
+  router.replace("/");
 }
 </script>

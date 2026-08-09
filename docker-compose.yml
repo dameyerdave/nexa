@@ -34,23 +34,32 @@ services:
     environment:
       NUXT_PUBLIC_APP_NAME: ${APP_NAME:-Nexdata}
       NUXT_PUBLIC_SUPABASE_URL: ${SUPABASE_PUBLIC_URL}
-      NUXT_PUBLIC_SUPABASE_ANON_KEY: ${ANON_KEY}
-      NUXT_PUBLIC_GOOGLE_ENABLED: ${GOOGLE_ENABLED:-false}
+      NUXT_PUBLIC_METABASE_URL: ${METABASE_PUBLIC_URL}
       # Server-only - never exposed to the browser.
       # Service-role Postgres access, used by server/api/import.post.ts to
-      # bulk-insert parsed spreadsheet rows via PostgREST.
+      # bulk-insert parsed spreadsheet rows via PostgREST, and to store
+      # each user's 2FA secret/recovery codes (server/utils/two-factor-store.ts).
       NUXT_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
       # The shared Basic Auth credential Kong puts in front of Studio (see
       # volumes/api/kong.yml's `dashboard` route) - embedded into the
-      # iframe URL server-side so signed-in users aren't prompted for it.
+      # iframe URL server-side so signed-in editors aren't prompted for it.
       NUXT_DASHBOARD_USERNAME: ${DASHBOARD_USERNAME}
       NUXT_DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
       # pg-meta, reached over the internal Docker network - used by
       # server/api/import.post.ts to create a new table from a
       # spreadsheet's inferred column list.
       NUXT_PG_META_URL: http://meta:8080
+      # Metabase is the identity provider (see README.md "Authentication") -
+      # the portal signs users in server-to-server over the internal Docker
+      # network, bypassing Kong's block on direct /api/session logins.
+      NUXT_METABASE_INTERNAL_URL: http://metabase:3000
+      NUXT_METABASE_ADMIN_EMAIL: ${METABASE_ADMIN_EMAIL}
+      NUXT_METABASE_ADMIN_PASSWORD: ${METABASE_ADMIN_PASSWORD}
+      NUXT_METABASE_EDITOR_GROUP: ${METABASE_EDITOR_GROUP:-Editors}
     depends_on:
       kong:
+        condition: service_healthy
+      metabase:
         condition: service_healthy
 
   studio:
@@ -125,6 +134,9 @@ services:
     ports:
       - ${KONG_HTTP_PORT}:8000/tcp
       - ${KONG_HTTPS_PORT}:8443/tcp
+      # Metabase's own listener - see the "metabase"/"metabase-session-block"
+      # routes in kong.yml for why it can't share port 8000 with Studio.
+      - ${KONG_METABASE_PORT:-8002}:8002/tcp
     volumes:
       - ./volumes/api/kong.yml:/home/kong/temp.yml:ro,z
       - ./volumes/api/kong-entrypoint.sh:/home/kong/kong-entrypoint.sh:ro,z
@@ -134,6 +146,7 @@ services:
       KONG_DATABASE: "off"
       KONG_DECLARATIVE_CONFIG: /usr/local/kong/kong.yml
       KONG_ROUTER_FLAVOR: expressions
+      KONG_PROXY_LISTEN: "0.0.0.0:8000, 0.0.0.0:8443 ssl, 0.0.0.0:8002"
       # https://github.com/supabase/cli/issues/14
       KONG_DNS_ORDER: LAST,A,CNAME
       KONG_DNS_NOT_FOUND_TTL: 1
@@ -437,6 +450,7 @@ services:
       - ./volumes/db/jwt.sql:/docker-entrypoint-initdb.d/init-scripts/99-jwt.sql:Z
       - ./volumes/db/data:/var/lib/postgresql/data:Z
       - ./volumes/db/_supabase.sql:/docker-entrypoint-initdb.d/migrations/97-_supabase.sql:Z
+      - ./volumes/db/metabase.sql:/docker-entrypoint-initdb.d/migrations/97-metabase.sql:Z
       - ./volumes/db/logs.sql:/docker-entrypoint-initdb.d/migrations/99-logs.sql:Z
       - ./volumes/db/pooler.sql:/docker-entrypoint-initdb.d/migrations/99-pooler.sql:Z
       - db-config:/etc/postgresql-custom
@@ -524,6 +538,39 @@ services:
         "-c",
         "/app/bin/migrate && /app/bin/supavisor eval \"$$(cat /etc/pooler/pooler.exs)\" && /app/bin/server"
       ]
+
+  # --- Metabase ---------------------------------------------------------
+  # Metabase's own application data (dashboards, questions, users) lives on
+  # the same Postgres server, in its own `metabase` database created by
+  # volumes/db/metabase.sql. Deliberately no published host port - reached
+  # only over the internal Docker network (by the portal, for login and
+  # group lookups) and through Kong's dedicated listener on
+  # ${KONG_METABASE_PORT:-8002} (for the browser, once already signed in -
+  # see kong.yml's "metabase"/"metabase-session-block" routes for why
+  # login itself is blocked on that published port).
+
+  metabase:
+    container_name: nexa-metabase
+    image: metabase/metabase:v0.53.13
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail -s http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_HOST: db
+      MB_DB_PORT: ${POSTGRES_PORT}
+      MB_DB_DBNAME: metabase
+      MB_DB_USER: postgres
+      MB_DB_PASS: ${POSTGRES_PASSWORD}
+      MB_SITE_NAME: ${APP_NAME:-Nexdata}
+      MB_SITE_URL: ${METABASE_PUBLIC_URL}
 
 volumes:
   db-config:

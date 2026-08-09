@@ -1,38 +1,42 @@
 import type { H3Event } from "h3";
 
+export const METABASE_COOKIE = "metabase.SESSION";
+
 export interface PortalUser {
-  id: string;
+  id: number;
   email: string;
 }
 
 /**
- * Verifies the caller's Supabase access token by asking GoTrue itself
- * (the source of truth for token validity/expiry/rotation) rather than
- * re-implementing JWT verification here.
+ * Metabase is the portal's identity provider (see README.md
+ * "Authentication") - the browser's own metabase.SESSION cookie (set by
+ * server/api/auth/verify.post.ts once both password and 2FA pass) is
+ * checked directly against Metabase itself, the same way the old version
+ * of this function asked GoTrue whether a Supabase Auth token was valid.
  */
 export async function getUserFromEvent(event: H3Event): Promise<PortalUser | null> {
-  const authHeader = getHeader(event, "authorization");
-  const token = authHeader?.match(/^Bearer (.+)$/i)?.[1];
+  const token = getCookie(event, METABASE_COOKIE);
   if (!token) return null;
-
-  const config = useRuntimeConfig();
-  try {
-    const supabaseUser = await $fetch<{ id: string; email: string }>(`${config.public.supabaseUrl}/auth/v1/user`, {
-      headers: {
-        apikey: config.public.supabaseAnonKey,
-        Authorization: `Bearer ${token}`,
-      },
-    });
-    return { id: supabaseUser.id, email: supabaseUser.email };
-  } catch {
-    return null;
-  }
+  const user = await metabaseUserFromSession(token);
+  return user ? { id: user.userId, email: user.email } : null;
 }
 
 export async function requireUser(event: H3Event): Promise<PortalUser> {
   const user = await getUserFromEvent(event);
   if (!user) {
     throw createError({ statusCode: 401, statusMessage: "Not signed in" });
+  }
+  return user;
+}
+
+/** Gates the features reserved for Metabase's editor group (read/write
+ * dashboards, plus Supabase Studio and Import Excel in the portal) -
+ * separate from requireUser so a plain "am I signed in" check never pays
+ * for the extra group-membership lookup. */
+export async function requireEditor(event: H3Event): Promise<PortalUser> {
+  const user = await requireUser(event);
+  if (!(await isMetabaseEditor(user.id))) {
+    throw createError({ statusCode: 403, statusMessage: "Editor access required" });
   }
   return user;
 }
