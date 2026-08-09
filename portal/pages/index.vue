@@ -1,57 +1,35 @@
 <template>
-  <div class="page">
-    <header class="header">
+  <div class="app-shell">
+    <header class="header header-wide">
       <img class="logo" src="~/assets/img/logo.svg" :alt="appName" />
-      <div class="header-actions">
-        <NuxtLink v-if="isAdmin" class="link-btn" to="/admin/users">Manage users</NuxtLink>
+      <nav class="header-actions">
+        <NuxtLink class="link-btn" to="/import">Import Excel</NuxtLink>
         <button class="link-btn" type="button" @click="onSignOut">Sign out</button>
-      </div>
+      </nav>
     </header>
-    <p class="subtitle">Choose a destination</p>
-    <div class="tiles">
-      <button v-if="canAccessStudio" class="tile" type="button" @click="openStudio">
-        <h2>{{ dataModelLabel }}</h2>
-        <p>Browse and manage your data structures</p>
-      </button>
-      <a class="tile" :href="dataAnalyticsUrl" target="_blank" rel="noopener noreferrer">
-        <h2>{{ dataAnalyticsLabel }}</h2>
-        <p>Explore dashboards and reports</p>
-      </a>
-      <NuxtLink v-if="canAccessStudio" class="tile" to="/admin/projects">
-        <h2>Projects</h2>
-        <p>Create a new schema and connect it to Metabase</p>
-      </NuxtLink>
-    </div>
+    <iframe v-if="studioUrl" class="studio-frame" :src="studioUrl" title="Database" />
+    <p v-else-if="error" class="error">{{ error }}</p>
+    <p v-else class="info">Loading…</p>
   </div>
 </template>
 
 <script setup lang="ts">
 const config = useRuntimeConfig();
 const appName = config.public.appName;
-const dataModelLabel = config.public.dataModelLabel;
-const dataAnalyticsLabel = config.public.dataAnalyticsLabel;
-const dataAnalyticsUrl = config.public.dataAnalyticsUrl;
-
 const { signOut } = useAuth();
 const { apiFetch } = useApi();
 
-const isAdmin = ref(false);
-const canAccessStudio = ref(false);
+const studioUrl = ref("");
+const error = ref("");
 
 onMounted(async () => {
   try {
-    const me = await apiFetch<{ roles: string[]; isAdmin: boolean }>("/api/me");
-    isAdmin.value = me.isAdmin;
-    canAccessStudio.value = me.isAdmin || me.roles.includes("dbadmin");
-  } catch {
-    // Not fatal - tiles that need it just stay hidden.
+    const { url } = await apiFetch<{ url: string }>("/api/studio-link");
+    studioUrl.value = url;
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : "Failed to load the database view";
   }
 });
-
-async function openStudio() {
-  const { url } = await apiFetch<{ url: string }>("/api/studio-link");
-  window.open(url, "_blank", "noopener,noreferrer");
-}
 
 async function onSignOut() {
   await signOut();

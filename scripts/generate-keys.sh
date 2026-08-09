@@ -1,7 +1,6 @@
 #!/bin/sh
 #
-# Generate secrets and legacy symmetric JWT API keys for the stack
-# (Supabase + Metabase app database).
+# Generate secrets and legacy symmetric JWT API keys for the stack.
 #
 # Usage:
 #   sh scripts/generate-keys.sh              # Interactive: prints keys, prompts to update .env
@@ -64,12 +63,7 @@ s3_protocol_access_key_secret=$(gen_hex 32)
 
 postgres_password=$(gen_hex 16)
 dashboard_password=$(gen_hex 16)
-mb_admin_password=$(gen_hex 16)
 pooler_tenant_id=$(gen_hex 8)
-
-django_secret_key=$(gen_base64 48)
-roles_api_token=$(gen_hex 32)
-django_superuser_password=$(gen_hex 16)
 
 echo ""
 echo "JWT_SECRET=${jwt_secret}"
@@ -86,12 +80,7 @@ echo "S3_PROTOCOL_ACCESS_KEY_SECRET=${s3_protocol_access_key_secret}"
 echo ""
 echo "POSTGRES_PASSWORD=${postgres_password}"
 echo "DASHBOARD_PASSWORD=${dashboard_password}"
-echo "METABASE_ADMIN_PASSWORD=${mb_admin_password}"
 echo "POOLER_TENANT_ID=${pooler_tenant_id}"
-echo ""
-echo "DJANGO_SECRET_KEY=${django_secret_key}"
-echo "ROLES_API_TOKEN=${roles_api_token}"
-echo "DJANGO_SUPERUSER_PASSWORD=${django_superuser_password}"
 echo ""
 
 if [ "$1" = "--update-env" ]; then
@@ -132,12 +121,8 @@ sed \
     -e "s|^S3_PROTOCOL_ACCESS_KEY_SECRET=.*$|S3_PROTOCOL_ACCESS_KEY_SECRET=${s3_protocol_access_key_secret}|" \
     -e "s|^POSTGRES_PASSWORD=.*$|POSTGRES_PASSWORD=${postgres_password}|" \
     -e "s|^DASHBOARD_PASSWORD=.*$|DASHBOARD_PASSWORD=${dashboard_password}|" \
-    -e "s|^METABASE_ADMIN_PASSWORD=.*$|METABASE_ADMIN_PASSWORD=${mb_admin_password}|" \
     -e "s|^POOLER_TENANT_ID=.*$|POOLER_TENANT_ID=${pooler_tenant_id}|" \
-    -e "s|^DJANGO_SECRET_KEY=.*$|DJANGO_SECRET_KEY=${django_secret_key}|" \
-    -e "s|^ROLES_API_TOKEN=.*$|ROLES_API_TOKEN=${roles_api_token}|" \
-    -e "s|^DJANGO_SUPERUSER_PASSWORD=.*$|DJANGO_SUPERUSER_PASSWORD=${django_superuser_password}|" \
     .env
 
 rm -f .env.old
-echo "Done. Review .env, then fill in GOOGLE_CLIENT_ID / GOOGLE_SECRET and DJANGO_SUPERUSER_EMAIL (see README.md)."
+echo "Done. Review .env, then fill in GOOGLE_CLIENT_ID / GOOGLE_SECRET if you want Google sign-in (see README.md)."

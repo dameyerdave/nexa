@@ -6,20 +6,18 @@
 # All configuration lives in .env (copy .env.example -> .env and fill it in).
 #
 # Services:
-#   portal      - minimalistic Nuxt landing page ("Data Model" / "Data Analytics")
-#   kong        - Supabase API gateway (also serves Studio, the "Data Model" tool)
+#   portal      - Nuxt app: login/register + Supabase Studio embedded + Excel import
+#   kong        - Supabase API gateway (also serves Studio, embedded by portal)
 #   studio      - Supabase Studio dashboard, reached through kong
 #   auth        - Supabase Auth (GoTrue) - identity provider used by the portal
 #   rest        - PostgREST
 #   realtime    - Supabase Realtime
 #   storage     - Supabase Storage
 #   imgproxy    - image transformation for Storage
-#   meta        - postgres-meta, used by Studio
+#   meta        - postgres-meta, used by Studio and by the Excel import feature
 #   functions   - Supabase Edge Functions runtime
-#   db          - Postgres database used by Supabase (and by Metabase's own
-#                 app data, in its own `metabase` database on this instance)
+#   db          - Postgres database used by Supabase
 #   supavisor   - Postgres connection pooler
-#   metabase    - Metabase, the "Data Analytics" tool
 #
 
 name: nexa
@@ -38,66 +36,22 @@ services:
       NUXT_PUBLIC_SUPABASE_URL: ${SUPABASE_PUBLIC_URL}
       NUXT_PUBLIC_SUPABASE_ANON_KEY: ${ANON_KEY}
       NUXT_PUBLIC_GOOGLE_ENABLED: ${GOOGLE_ENABLED:-false}
-      NUXT_PUBLIC_DATA_MODEL_LABEL: ${DATA_MODEL_LABEL:-Data Model}
-      NUXT_PUBLIC_DATA_MODEL_URL: ${SUPABASE_PUBLIC_URL}
-      NUXT_PUBLIC_DATA_ANALYTICS_LABEL: ${DATA_ANALYTICS_LABEL:-Data Analytics}
-      NUXT_PUBLIC_DATA_ANALYTICS_URL: ${METABASE_PUBLIC_URL}
-      # Server-only - used by server/api/admin/* and server/api/studio-link
-      # to talk to the Supabase Admin API / Metabase Admin API. Never
-      # exposed to the browser. Role/admin state itself (who's a portal
-      # admin, who has dbadmin/dashboardadmin, the Studio credential) is
-      # NOT configured here - it lives in roles-api's own database, managed
-      # via its Django admin. See README.md "Roles and access control".
+      # Server-only - never exposed to the browser.
+      # Service-role Postgres access, used by server/api/import.post.ts to
+      # bulk-insert parsed spreadsheet rows via PostgREST.
       NUXT_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
-      NUXT_METABASE_ADMIN_EMAIL: ${METABASE_ADMIN_EMAIL}
-      NUXT_METABASE_ADMIN_PASSWORD: ${METABASE_ADMIN_PASSWORD}
-      NUXT_ROLES_API_URL: http://roles-api:8000
-      NUXT_ROLES_API_TOKEN: ${ROLES_API_TOKEN}
+      # The shared Basic Auth credential Kong puts in front of Studio (see
+      # volumes/api/kong.yml's `dashboard` route) - embedded into the
+      # iframe URL server-side so signed-in users aren't prompted for it.
+      NUXT_DASHBOARD_USERNAME: ${DASHBOARD_USERNAME}
+      NUXT_DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
+      # pg-meta, reached over the internal Docker network - used by
+      # server/api/import.post.ts to create a new table from a
+      # spreadsheet's inferred column list.
+      NUXT_PG_META_URL: http://meta:8080
     depends_on:
       kong:
         condition: service_healthy
-      metabase:
-        condition: service_started
-      roles-api:
-        condition: service_started
-
-  roles-api:
-    container_name: nexa-roles-api
-    build:
-      context: ./roles-api
-    restart: unless-stopped
-    ports:
-      # Local-only access to the Django admin (manage roles / rotate the
-      # Studio credential as the main admin) - not proxied through Kong.
-      - ${ROLES_API_PORT:-3102}:8000
-    volumes:
-      - roles-api-data:/app/data
-    environment:
-      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
-      DJANGO_DB_PATH: /app/data/db.sqlite3
-      ROLES_API_TOKEN: ${ROLES_API_TOKEN}
-      # The one env-configured identity - see README.md "Roles and access
-      # control" for why every other role/admin grant lives in the DB
-      # instead.
-      DJANGO_SUPERUSER_EMAIL: ${DJANGO_SUPERUSER_EMAIL}
-      DJANGO_SUPERUSER_PASSWORD: ${DJANGO_SUPERUSER_PASSWORD}
-      # Only used to seed the Studio credential row on first run, so it
-      # starts in sync with Kong's own consumer (see kong.yml) - rotate it
-      # via the Django admin afterwards, not by changing these.
-      DASHBOARD_USERNAME: ${DASHBOARD_USERNAME}
-      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
-      # Used by roles.provisioning to create a project's Postgres schema
-      # (via pg-meta, not a direct DB connection) and register it in
-      # Metabase, which does need the real connection details below - see
-      # README.md "Roles and access control" > Projects.
-      PG_META_URL: http://meta:8080
-      POSTGRES_HOST: ${POSTGRES_HOST}
-      POSTGRES_PORT: ${POSTGRES_PORT}
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      METABASE_URL: http://metabase:3000
-      METABASE_ADMIN_EMAIL: ${METABASE_ADMIN_EMAIL}
-      METABASE_ADMIN_PASSWORD: ${METABASE_ADMIN_PASSWORD}
 
   studio:
     container_name: supabase-studio
@@ -483,7 +437,6 @@ services:
       - ./volumes/db/jwt.sql:/docker-entrypoint-initdb.d/init-scripts/99-jwt.sql:Z
       - ./volumes/db/data:/var/lib/postgresql/data:Z
       - ./volumes/db/_supabase.sql:/docker-entrypoint-initdb.d/migrations/97-_supabase.sql:Z
-      - ./volumes/db/metabase.sql:/docker-entrypoint-initdb.d/migrations/97-metabase.sql:Z
       - ./volumes/db/logs.sql:/docker-entrypoint-initdb.d/migrations/99-logs.sql:Z
       - ./volumes/db/pooler.sql:/docker-entrypoint-initdb.d/migrations/99-pooler.sql:Z
       - db-config:/etc/postgresql-custom
@@ -572,43 +525,6 @@ services:
         "/app/bin/migrate && /app/bin/supavisor eval \"$$(cat /etc/pooler/pooler.exs)\" && /app/bin/server"
       ]
 
-  # --- Metabase ("Data Analytics") ---------------------------------------
-  # Metabase's own application data (dashboards, questions, users) and the
-  # business data it queries for analytics both live on the one Supabase
-  # Postgres server above - in the dedicated `metabase` database created by
-  # volumes/db/metabase.sql, not a separate Postgres container.
-
-  metabase:
-    container_name: nexa-metabase
-    image: metabase/metabase:v0.53.13
-    restart: unless-stopped
-    ports:
-      - ${METABASE_PORT:-3200}:3000
-    depends_on:
-      db:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "curl --fail -s http://localhost:3000/api/health || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 60s
-    environment:
-      MB_DB_TYPE: postgres
-      MB_DB_HOST: db
-      MB_DB_PORT: ${POSTGRES_PORT}
-      MB_DB_DBNAME: metabase
-      MB_DB_USER: postgres
-      MB_DB_PASS: ${POSTGRES_PASSWORD}
-      MB_SITE_NAME: ${APP_NAME:-Nexdata}
-      MB_SITE_URL: ${METABASE_PUBLIC_URL}
-      # Google Sign-In (OSS-supported): reuses the same Google OAuth client
-      # configured for Supabase Auth above, so end users authenticate with
-      # the same Google identity across both tools.
-      MB_GOOGLE_AUTH_CLIENT_ID: ${GOOGLE_CLIENT_ID}
-      MB_GOOGLE_AUTH_AUTO_CREATE_ACCOUNTS_DOMAIN: ${GOOGLE_AUTH_ALLOWED_DOMAIN:-}
-
 volumes:
   db-config:
   deno-cache:
-  roles-api-data:

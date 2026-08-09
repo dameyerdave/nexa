@@ -14,17 +14,20 @@ export default defineNuxtConfig({
   },
   runtimeConfig: {
     // Server-only - overridden via matching NUXT_* environment variables
-    // (see docker-compose.yml / .env). Used by server/api/* to talk to the
-    // Supabase Admin API and Metabase Admin API. Role/admin state itself
-    // (who's a portal admin, who has dbadmin/dashboardadmin, the Studio
-    // credential) is NOT configured here - server/utils/roles-api.ts reads
-    // it from the roles-api service's own database. See README.md "Roles
-    // and access control".
+    // (see docker-compose.yml / .env).
+    // Service-role Postgres access, used by server/api/import.post.ts to
+    // bulk-insert parsed spreadsheet rows via PostgREST.
     serviceRoleKey: "",
-    metabaseAdminEmail: "",
-    metabaseAdminPassword: "",
-    rolesApiUrl: "",
-    rolesApiToken: "",
+    // The shared Basic Auth credential Kong puts in front of Studio (see
+    // volumes/api/kong.yml's `dashboard` route) - used by
+    // server/api/studio-link.get.ts to build an embeddable iframe URL so
+    // signed-in users aren't prompted for it separately.
+    dashboardUsername: "",
+    dashboardPassword: "",
+    // pg-meta (supabase/postgres-meta), reached over the internal Docker
+    // network - used by server/api/import.post.ts to create a new table
+    // from a spreadsheet's inferred column list.
+    pgMetaUrl: "",
     public: {
       // All of these are overridden at container start via matching
       // NUXT_PUBLIC_* environment variables (see docker-compose.yml / .env).
@@ -32,10 +35,6 @@ export default defineNuxtConfig({
       supabaseUrl: "",
       supabaseAnonKey: "",
       googleEnabled: false,
-      dataModelLabel: "Data Model",
-      dataModelUrl: "",
-      dataAnalyticsLabel: "Data Analytics",
-      dataAnalyticsUrl: "",
     },
   },
 });

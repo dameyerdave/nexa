@@ -1,10 +1,9 @@
 export default defineEventHandler(async (event) => {
-  await requireDbAdmin(event);
+  await requireUser(event);
 
   const config = useRuntimeConfig();
-  const credential = await fetchStudioCredential();
   const url = new URL(config.public.supabaseUrl);
-  url.username = encodeURIComponent(credential.username);
-  url.password = encodeURIComponent(credential.password);
+  url.username = encodeURIComponent(config.dashboardUsername);
+  url.password = encodeURIComponent(config.dashboardPassword);
   return { url: url.toString() };
 });

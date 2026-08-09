@@ -1,13 +1,14 @@
 # Nexdata
 
-A self-hosted data stack behind a single, minimalistic front door.
+A self-hosted Supabase stack with its database UI embedded directly inside
+a Nuxt app, behind a real login.
 
 * **Supabase** - Postgres, Auth, REST/GraphQL API, Realtime, Storage, and the
   Studio dashboard (self-hosted, official Docker images).
-* **Metabase** - dashboards and BI on top of your data.
-* **Portal** - a small Nuxt app that hides the tech stack behind two plain
-  labels, **"Data Model"** and **"Data Analytics"**, and gates both behind a
-  login.
+* **Portal** - a small Nuxt app: sign in / register, then Supabase Studio
+  appears embedded in the page (not a separate tab) as the main view. A
+  small "Import Excel" tool lets you turn a spreadsheet into a new table
+  without touching SQL.
 
 Everything is defined in [`docker-compose.yml`](./docker-compose.yml) and
 configured entirely through a single `.env` file.
@@ -19,27 +20,22 @@ configured entirely through a single `.env` file.
    user ──────────▶ │   portal    │  Sign in (Supabase Auth: email/password
                     │  (Nuxt 3)   │  today, Google SSO ready to enable)
                     └──────┬──────┘
-                           │ after sign-in, two tiles:
-              ┌────────────┴────────────┐
-              ▼                         ▼
-        "Data Model"              "Data Analytics"
-              │                         │
-              ▼                         ▼
-      ┌───────────────┐         ┌───────────────┐
-      │  kong (:8000) │         │   metabase    │
-      │  -> studio    │         │ (Google sign- │
-      │  -> rest/auth │         │  in with the  │
-      │  -> realtime  │         │  same client) │
-      │  -> storage   │         └───────┬───────┘
-      └───────┬───────┘                 │
-              ▼                         ▼
-              └────────────┬────────────┘
+                           │ after sign-in: Studio embedded in an <iframe>,
+                           │ credentials attached server-side
+                           ▼
+                    ┌───────────────┐
+                    │  kong (:8000) │
+                    │  -> studio    │  HTTP Basic Auth (DASHBOARD_USERNAME/
+                    │  -> rest/auth │  PASSWORD), embedded by the portal so
+                    │  -> realtime  │  users aren't prompted separately
+                    │  -> storage   │
+                    │  -> pg-meta   │  used by "Import Excel" to create
+                    └───────┬───────┘  tables from a spreadsheet's header row
                             ▼
                     ┌───────────────┐
-                    │   supabase    │  metabase's own app data (dashboards,
-                    │   postgres    │  questions, users) lives here too, in
-                    │               │  its own `metabase` database - one
-                    └───────────────┘  Postgres instance total, no second db
+                    │   supabase    │
+                    │   postgres    │
+                    └───────────────┘
 ```
 
 ## Prerequisites
@@ -61,21 +57,37 @@ to enable whenever you want it (see below).
 
 Once healthy:
 
-| URL                              | What                                             |
-| --------------------------------- | ------------------------------------------------ |
-| `http://localhost:3100`           | Portal - start here                               |
-| `http://localhost:8000`           | Supabase API / Studio ("Data Model", HTTP Basic Auth) |
-| `http://localhost:3200`           | Metabase ("Data Analytics")                       |
+| URL                      | What                                        |
+| ------------------------- | -------------------------------------------- |
+| `http://localhost:3100`   | Portal - sign in, then Studio is embedded here |
+| `http://localhost:8000`   | Supabase API / Studio directly (HTTP Basic Auth) |
 
-Change the published ports via `PORTAL_PORT`, `KONG_HTTP_PORT`, and
-`METABASE_PORT` in `.env`.
+Change the published ports via `PORTAL_PORT` and `KONG_HTTP_PORT` in `.env`.
+
+## Importing a spreadsheet
+
+Once signed in, click **"Import Excel"** in the portal header:
+
+1. Pick a `.xlsx` file. The first row is treated as column headers, every
+   row after that as data.
+2. Optionally name the table - defaults to the filename.
+3. Submit. The portal infers a Postgres type per column (`double precision`,
+   `boolean`, `timestamptz`, or `text` - text is the fallback whenever a
+   column mixes types) and creates the table via pg-meta (the same service
+   Studio's own SQL editor uses), then bulk-inserts every row via
+   PostgREST.
+
+The new table lands in the `public` schema, so it's immediately visible in
+the embedded Studio view and queryable over the REST API - no restart
+needed. See `portal/server/api/import.post.ts` for the exact logic
+(`portal/server/utils/slug.ts` for name sanitizing,
+`portal/server/utils/pg-meta.ts` for the pg-meta client). This is a v1: no
+column-type overrides, no update/append to an existing table, no chunking
+for very large workbooks.
 
 ## Google SSO setup (optional)
 
-The portal works today with plain email/password accounts. Enabling Google
-additionally lets Metabase reuse the same OAuth client for its native Google
-Sign-In, so users authenticate with the same Google account for both
-destinations.
+The portal works today with plain email/password accounts.
 
 1. In [Google Cloud Console](https://console.cloud.google.com/apis/credentials),
    create an **OAuth 2.0 Client ID** of type **Web application**.
@@ -88,14 +100,7 @@ destinations.
    GOOGLE_CLIENT_ID=xxxxxxxx.apps.googleusercontent.com
    GOOGLE_SECRET=xxxxxxxx
    ```
-4. (Optional) Set `GOOGLE_AUTH_ALLOWED_DOMAIN` to restrict Metabase
-   auto-provisioning to a Google Workspace domain.
-5. Restart: `docker compose up -d`.
-
-For the Kubernetes deploy, the same three settings are `NEXA_GOOGLE_ENABLED`
-/ `NEXA_GOOGLE_CLIENT_ID` / `NEXA_GOOGLE_AUTH_ALLOWED_DOMAIN` (GitHub Actions
-repo variables) and the `GOOGLE_SECRET` repo secret - see
-`deploy/README.md`.
+4. Restart: `docker compose up -d`.
 
 ### Adding more identity providers
 
@@ -116,146 +121,46 @@ automatically once `GOOGLE_ENABLED=true` (see `portal/pages/login.vue`) - for
 another provider, add a matching `signInWithOAuth('<provider>')` call and
 button following the same pattern.
 
-### SSO model and its limits
+### How Studio is embedded
 
-* **Portal -> Supabase Auth**: the portal itself is fully gated by a real
-  Supabase Auth session (email/password via `@supabase/supabase-js` today;
-  Google OAuth is implemented in `useAuth()` and ready to enable).
-* **Portal -> Metabase**: real SSO via a *shared identity provider*. Metabase
-  (open source) doesn't support OIDC/SAML/JWT single sign-on - only Google
-  Sign-In natively - so it's configured with the same Google OAuth client as
-  Supabase Auth. Users see one Google account picker, not a second app
-  password.
-* **Portal -> Supabase Studio**: self-hosted Studio has no built-in SSO of
-  its own; Kong protects it with HTTP Basic Auth (`DASHBOARD_USERNAME` /
-  `DASHBOARD_PASSWORD`). Rather than share that admin secret out of band,
-  the portal grants it on the user's behalf - see "Roles and access
-  control" below.
-
-## Roles and access control
-
-Every portal user can sign in, but two roles unlock more:
-
-* **`dbadmin`** - the portal's "Data Model" tile becomes clickable and opens
-  Supabase Studio with the shared Basic Auth credential embedded in the
-  URL, so the user isn't prompted for it (`portal/server/api/studio-link.get.ts`).
-  Users without the role don't see the tile at all.
-* **`dashboardadmin`** - the user is added to a "Dashboard Admins" Metabase
-  group that can create/edit dashboards and questions. Everyone else only
-  gets view access. Metabase itself still requires its own sign-in
-  (email/password, or Google if enabled) - this only changes what a
-  signed-in Metabase user is allowed to do.
-
-### roles-api
-
-Role assignments and the Studio credential are **not** environment
-variables - they live in **roles-api**, a small internal Django + Django
-REST Framework service with its own SQLite database (separate from the
-Supabase/Metabase Postgres instance), deployed alongside the rest of the
-stack. It's the source of truth the portal calls into
-(`portal/server/utils/roles-api.ts`) whenever it needs to check or change
-someone's roles.
-
-The **only** admin identity configured via environment variables is the one
-bootstrap superuser: `DJANGO_SUPERUSER_EMAIL` / `DJANGO_SUPERUSER_PASSWORD`.
-Log into roles-api's own Django admin as that user to:
-
-* promote other users to **portal admin** (`is_admin`) - who can then
-  assign `dbadmin`/`dashboardadmin` to anyone from the portal's own
-  `/admin/users` page, no Django login needed for that day-to-day part;
-* view or rotate the shared **Studio credential** (seeded once from
-  `DASHBOARD_USERNAME`/`DASHBOARD_PASSWORD` so it starts in sync with
-  Kong's own consumer - see the comment on `StudioCredential` in
-  `roles-api/roles/models.py` for the one caveat: because Kong runs
-  DB-less from a declarative config baked at deploy time, rotating the
-  credential here also needs a matching redeploy for Kong to accept it).
-
-roles-api has no public route (no Ingress/Kong entry) - reach its Django
-admin with:
-
-```sh
-kubectl port-forward svc/roles-api 8000:8000 -n nexa   # then open http://localhost:8000/admin/
-```
-
-or, with `docker compose`, it's published locally at `${ROLES_API_PORT:-3102}`.
-
-`dashboardadmin` group membership is synced to Metabase automatically on
-every role change, but the *permissions* the "Dashboard Admins" group and
-"All Users" group actually have on Metabase's collections are a one-time
-setup - run this once against a fresh Metabase (safe to re-run, it
-converges rather than duplicating):
-
-```sh
-python3 scripts/setup_metabase_permissions.py
-```
-
-### Projects
-
-For a quick empty schema rather than a full YAML app package (see "Data
-model apps" below), any `dbadmin` can create one from the portal's
-"Projects" tile (`/admin/projects`): give it a name and roles-api creates
-a matching Postgres schema (granted to `authenticated`, same
-`grant`/`alter default privileges` pattern every `apps/<id>` package
-hand-writes) and registers a Metabase database connection scoped to just
-that schema - no tables yet, an admin adds those via the Data Model
-tile's SQL editor, or later graduates the project into a real `apps/<id>`
-package if it needs RLS policies or dashboards. If the Metabase half
-fails (e.g. Metabase briefly unreachable) the schema is kept and the
-projects page offers a "Retry connect" button rather than losing it.
-
-## Data model apps
-
-The actual Postgres schema (tables, relationships, RLS) and Metabase
-dashboards are not hand-built through the UI - they're defined as YAML
-"apps" under [`apps/`](./apps), each a self-contained config package
-(think Splunk app, but for a Supabase schema + Metabase dashboards). See
-[`apps/README.md`](./apps/README.md) for the format, and
-[`apps/biomedical-studies`](./apps/biomedical-studies) for a full worked
-example (biomedical study/specimen/instrument-run metadata, with raw data
-in Supabase Storage and full provenance from subject to result, plus a
-ready-made overview dashboard).
-
-```sh
-python3 scripts/compile_schema.py apps/biomedical-studies   # YAML -> SQL
-sh scripts/apply_schema.sh apps/biomedical-studies           # apply schema to the running stack
-python3 scripts/apply_dashboards.py apps/biomedical-studies  # apply dashboards to Metabase
-```
+Self-hosted Studio has no built-in SSO of its own; Kong protects it with
+HTTP Basic Auth (`DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD`, see the
+`dashboard` route in `volumes/api/kong.yml`). Rather than prompt a second
+time, `portal/server/api/studio-link.get.ts` builds the Studio URL with
+those credentials embedded (`https://user:pass@host/`) after verifying the
+caller has a valid Supabase Auth session, and the portal renders that URL
+in an `<iframe>` (`portal/pages/index.vue`) - so from the user's point of
+view, signing into the portal is the only login step. Every signed-in
+portal user currently gets Studio access; there's no separate role/admin
+tier in this build.
 
 ## Repository layout
 
 ```
 docker-compose.yml       Full stack definition
 .env.example              All configuration - copy to .env
-scripts/generate-keys.sh  Generates JWT/DB/Metabase secrets into .env
-scripts/compile_schema.py Compiles an apps/<app> YAML schema into SQL migrations
-scripts/apply_schema.sh   Applies a compiled app's migrations to the running stack
-scripts/apply_dashboards.py Applies an apps/<app> YAML dashboard to Metabase
+scripts/generate-keys.sh  Generates JWT/DB secrets into .env
 volumes/                  Supabase self-hosting config (Kong routes, DB init SQL, ...)
 portal/                   Nuxt 3 portal app (Dockerfile included)
-roles-api/                Django + DRF role/access-control service (Dockerfile included)
-apps/                     Config-package data model apps (schema + dashboards)
-deploy/                   Kubernetes: Helm chart + CI/CD (see deploy/README.md)
 ```
-
-## Deploying to Kubernetes
-
-For a Kubernetes deployment instead of (or alongside) `docker compose`,
-there's a Helm chart at [`deploy/helm/nexa`](./deploy/helm/nexa) and a
-GitHub Actions pipeline that builds the portal image and deploys it on
-every push to `main`. See [`deploy/README.md`](./deploy/README.md) for the
-full list of GitHub Actions secrets/variables to configure, and
-[`deploy/helm/nexa/README.md`](./deploy/helm/nexa/README.md) for how the
-chart itself is put together and its known limitations.
 
 ## Production notes
 
 * Put a TLS-terminating reverse proxy (Caddy, nginx, Traefik) in front of
-  `portal`, `kong`, and `metabase`, and update `SITE_URL`, `API_EXTERNAL_URL`,
-  `SUPABASE_PUBLIC_URL`, `ADDITIONAL_REDIRECT_URLS`, and `METABASE_PUBLIC_URL`
-  in `.env` to your real HTTPS domains (and update the Google OAuth redirect
-  URI to match).
+  `portal` and `kong`, and update `SITE_URL`, `API_EXTERNAL_URL`,
+  `SUPABASE_PUBLIC_URL`, and `ADDITIONAL_REDIRECT_URLS` in `.env` to your
+  real HTTPS domains (and update the Google OAuth redirect URI to match).
+  Note that embedding Studio in an `<iframe>` only works if neither Studio
+  itself nor anything in front of it (Kong, a reverse proxy) sends
+  `X-Frame-Options`/CSP `frame-ancestors` headers that block framing - Kong's
+  own config here doesn't add any, but this hasn't been verified against a
+  running Studio container (no Docker available while building this), so
+  check the browser console for a blocked-frame error on first run; if
+  Studio does send one, the fix is either stripping that response header at
+  Kong (a `response-transformer` plugin on the `dashboard` route) or falling
+  back to opening Studio in a new tab instead of embedding it.
 * Configure real SMTP (`SMTP_HOST`/`SMTP_USER`/`SMTP_PASS`/...) if you want
   Supabase's email flows (password recovery, invites) to work; without it
   only OAuth sign-in (Google) works.
-* Back up `volumes/db/data` (Supabase Postgres) - this now holds Metabase's
-  own app data too, in its `metabase` database.
+* Back up `volumes/db/data` (Supabase Postgres) - it holds every table,
+  including ones created via "Import Excel".
