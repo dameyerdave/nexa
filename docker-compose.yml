@@ -49,6 +49,11 @@ services:
       # server/api/import.post.ts to create a new table from a
       # spreadsheet's inferred column list.
       NUXT_PG_META_URL: http://meta:8080
+      # PostgREST, reached directly over the internal Docker network -
+      # also the proxy target for Studio's own REST calls (see
+      # volumes/api/kong.yml's rest-v1 routes and
+      # server/utils/studio-proxy.ts).
+      NUXT_REST_INTERNAL_URL: http://rest:3000
       # Metabase is the identity provider (see README.md "Authentication") -
       # the portal signs users in server-to-server over the internal Docker
       # network, bypassing Kong's block on direct /api/session logins.
@@ -279,6 +284,14 @@ services:
       PGRST_DB_USE_LEGACY_GUCS: "false"
       PGRST_APP_SETTINGS_JWT_SECRET: ${JWT_SECRET}
       PGRST_APP_SETTINGS_JWT_EXP: ${JWT_EXPIRY}
+      # Copies the X-User-Email header (set by the portal's Studio identity
+      # proxy or the portal's own writes) into a session GUC the audit
+      # trigger reads - see volumes/db/audit.sql and
+      # portal/server/utils/studio-proxy.ts. Defined by that same SQL file,
+      # so on an already-initialized database it only exists once the
+      # portal's bootstrap-audit plugin has run at least once (self-heals
+      # within seconds of `docker compose up` - see README "Audit log").
+      PGRST_DB_PRE_REQUEST: public.pgrst_pre_request
     command:
       [
         "postgrest"
@@ -451,6 +464,7 @@ services:
       - ./volumes/db/data:/var/lib/postgresql/data:Z
       - ./volumes/db/_supabase.sql:/docker-entrypoint-initdb.d/migrations/97-_supabase.sql:Z
       - ./volumes/db/metabase.sql:/docker-entrypoint-initdb.d/migrations/97-metabase.sql:Z
+      - ./volumes/db/audit.sql:/docker-entrypoint-initdb.d/migrations/97-audit.sql:Z
       - ./volumes/db/logs.sql:/docker-entrypoint-initdb.d/migrations/99-logs.sql:Z
       - ./volumes/db/pooler.sql:/docker-entrypoint-initdb.d/migrations/99-pooler.sql:Z
       - db-config:/etc/postgresql-custom

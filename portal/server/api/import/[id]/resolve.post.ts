@@ -1,5 +1,5 @@
 export default defineEventHandler(async (event) => {
-  await requireEditor(event);
+  const user = await requireEditor(event);
 
   const id = getRouterParam(event, "id")!;
   const pending = getPendingImport(id);
@@ -35,7 +35,7 @@ export default defineEventHandler(async (event) => {
     Object.fromEntries(pending.columnNames.map((name, i) => [name, row[i]])),
   );
   if (records.length > 0) {
-    await restInsert(pending.tableName, records, { onConflict: keyColumn });
+    await restInsert(pending.tableName, records, { onConflict: keyColumn, actorEmail: user.email });
   }
 
   deletePendingImport(id);

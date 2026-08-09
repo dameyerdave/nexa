@@ -269,6 +269,84 @@ URL in an `<iframe>` (`portal/pages/index.vue`) - so from the user's point
 of view, signing into the portal is the only login step. Viewers never see
 this option.
 
+## Audit log
+
+Every row change to any table in the `public` schema (except the portal's
+own `portal_*` bookkeeping tables) is logged to `audit_log` - who changed
+what, when, and the old/new row data - regardless of whether the change
+came from Import Excel or directly from an editor poking around in the
+embedded Studio.
+
+**Schema side** (`volumes/db/audit.sql`, self-healing copy in
+`portal/server/utils/audit-store.ts` for deployments that predate this
+feature - see below): a trigger on every table writes each INSERT/UPDATE/DELETE
+into `audit_log`, and a database event trigger auto-attaches that same
+trigger to any table created afterwards (Import Excel or Studio's own
+"New table"), so nothing has to remember to wire a new table up by hand.
+
+**Attributing a change to a real person** is the interesting part, since
+every write - whether from the portal or from Studio - ultimately reaches
+Postgres via the same shared `service_role` credential, which Postgres
+itself can't tell apart:
+
+* For writes the **portal** makes on a user's behalf (Import Excel), the
+  portal already knows who's calling and attaches an `X-User-Email` header
+  to its own PostgREST request.
+* For edits made **directly in the embedded Studio**, an `X-User-Email`
+  header wouldn't otherwise exist - Studio talks to PostgREST/pg-meta
+  using the same shared credentials every editor shares, with no
+  per-request identity of its own. To fix that, Kong's `meta` and
+  `rest-v1`/`rest-v1-openapi` routes (`volumes/api/kong.yml`) no longer
+  point straight at `pg-meta`/PostgREST - they're routed through a small
+  identity-resolving proxy in the portal
+  (`portal/server/utils/studio-proxy.ts`, `server/api/proxy/meta/[...path].ts`,
+  `server/api/proxy/rest/[...path].ts`) that reads the browser's
+  `metabase.SESSION` cookie (already present on these requests, since
+  portal/Studio/Metabase share a hostname and cookies aren't port-scoped),
+  resolves it to an email (cached ~60s so Studio's rapid clicking doesn't
+  hammer Metabase), stamps `X-User-Email`, and forwards the request
+  byte-for-byte to the real service. A shared-secret header
+  (`X-Kong-Proxy-Secret`, reusing `SERVICE_ROLE_KEY` - Kong injects it via
+  `request-transformer`) stops someone from reaching that proxy by hitting
+  the portal's own published port directly, bypassing Kong's key-auth/acl.
+* Either way, the header lands in Postgres via PostgREST's
+  `PGRST_DB_PRE_REQUEST` hook (`public.pgrst_pre_request()`), which copies
+  it into a session-local GUC (`app.current_user_email`, set with
+  `set_config(..., true)` - transaction-scoped, since PostgREST pools
+  connections across different callers and a plain session-wide `SET`
+  would risk one user's identity leaking onto another's write on a reused
+  connection) that the audit trigger reads. No cookie, no header, or a
+  request that never touches PostgREST at all (a raw `psql` connection,
+  say) just logs `changed_by = 'unknown'`.
+
+> **Trade-off worth knowing:** routing `rest-v1`/`rest-v1-openapi` through
+> the portal means the portal is now a required hop for the *entire*
+> public REST API, not just Studio's traffic - if the portal is down, REST
+> calls that used to work independently of it no longer do. Non-Studio
+> callers (no Metabase cookie) aren't otherwise affected - they just get
+> `changed_by = 'unknown'` in the audit log.
+>
+> **Unverified assumptions**, same caveat as elsewhere in this doc (no
+> Docker available while building this): PostgREST's `request.headers` GUC
+> shape and `PGRST_DB_PRE_REQUEST` hook behavior, and that Studio's Table
+> Editor / SQL Editor genuinely call `/rest/v1/*` and `/pg/*` directly from
+> the browser (rather than proxying through Studio's own Next.js backend,
+> which this design wouldn't intercept). If Studio's actual traffic
+> pattern differs, its own audit entries would keep showing `'unknown'`
+> rather than a real email - check your browser's network tab against
+> `volumes/api/kong.yml`'s routes to confirm if you rely on this.
+
+**On an already-running deployment**, `volumes/db/audit.sql` won't retroactively
+apply (Postgres only runs `docker-entrypoint-initdb.d` scripts once, against
+a brand-new `volumes/db/data`) - `portal/server/plugins/bootstrap-audit.ts`
+applies the identical, idempotent SQL on every portal boot instead, so the
+feature reaches existing deployments on their next restart without a
+volume wipe. One consequence: right after upgrading, there's a brief
+window (until the portal finishes that one-time boot step) where
+`PGRST_DB_PRE_REQUEST` points at a function that doesn't exist yet, and
+REST API calls may error until it does - self-healing, typically a matter
+of seconds.
+
 ## Repository layout
 
 ```
@@ -308,3 +386,7 @@ portal/                   Nuxt 3 portal app (Dockerfile included)
   derived from it (see "Authentication"), so rotating invalidates any
   password not yet approved (approval will fail decryption; the user just
   registers again).
+* `audit_log` (see "Audit log") has no retention or pruning - it grows
+  forever. Fine at self-hosted scale, but if you import/edit a lot of data
+  over a long period, periodically archiving or trimming old rows is on
+  you; nothing in this stack does it automatically.

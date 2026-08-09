@@ -3,7 +3,7 @@ import ExcelJS from "exceljs";
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024; // 20MB - a soft cap on the buffered file, not a streaming limit
 
 export default defineEventHandler(async (event) => {
-  await requireEditor(event);
+  const user = await requireEditor(event);
 
   const parts = await readMultipartFormData(event);
   const filePart = parts?.find((p) => p.filename);
@@ -56,7 +56,7 @@ export default defineEventHandler(async (event) => {
     const columns = columnNames.map((name, i) => ({ name, sqlType: columnTypes[i] }));
     await createTable("public", tableName, columns);
     const records = rows.map((row) => Object.fromEntries(columns.map((c, i) => [c.name, row[i]])));
-    await restInsert(tableName, records);
+    await restInsert(tableName, records, { actorEmail: user.email });
     return { status: "created" as const, table: tableName, columns: columnNames, rowCount: rows.length };
   }
 

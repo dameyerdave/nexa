@@ -128,9 +128,14 @@ services:
             - anon
 
   ## OpenAPI root - admin only
+  # Routed through the portal (not straight to rest:3000) so the portal can
+  # stamp who's actually behind the request - see server/utils/studio-proxy.ts
+  # and volumes/db/audit.sql. X-Kong-Proxy-Secret proves to the portal that
+  # this came through Kong's key-auth/acl checks, not a direct hit on the
+  # portal's own published port.
   - name: rest-v1-openapi
-    _comment: 'PostgREST OpenAPI root: /rest/v1/ -> <http://rest:3000/> (admin only). See <https://github.com/orgs/supabase/discussions/42949>'
-    url: http://rest:3000/
+    _comment: 'PostgREST OpenAPI root: /rest/v1/ -> portal proxy -> <http://rest:3000/> (admin only). See <https://github.com/orgs/supabase/discussions/42949>'
+    url: http://portal:3000/api/proxy/rest/
     routes:
       - name: rest-v1-openapi-root
         strip_path: true
@@ -145,6 +150,7 @@ services:
           add:
             headers:
               - "Authorization: $LUA_AUTH_EXPR"
+              - "X-Kong-Proxy-Secret: $SUPABASE_SERVICE_KEY"
           replace:
             headers:
               - "Authorization: $LUA_AUTH_EXPR"
@@ -156,8 +162,8 @@ services:
 
   ## Secure PostgREST routes
   - name: rest-v1
-    _comment: 'PostgREST: /rest/v1/* -> http://rest:3000/*'
-    url: http://rest:3000/
+    _comment: 'PostgREST: /rest/v1/* -> portal proxy -> http://rest:3000/* (see rest-v1-openapi comment above)'
+    url: http://portal:3000/api/proxy/rest/
     routes:
       - name: rest-v1-all
         strip_path: true
@@ -173,6 +179,7 @@ services:
           add:
             headers:
               - "Authorization: $LUA_AUTH_EXPR"
+              - "X-Kong-Proxy-Secret: $SUPABASE_SERVICE_KEY"
           replace:
             headers:
               - "Authorization: $LUA_AUTH_EXPR"
@@ -391,9 +398,14 @@ services:
   #         hide_credentials: true
 
   ## Secure Database routes
+  # Routed through the portal (not straight to meta:8080) so the portal can
+  # stamp who's actually behind the request - see server/utils/studio-proxy.ts
+  # and volumes/db/audit.sql. X-Kong-Proxy-Secret proves to the portal that
+  # this came through Kong's key-auth/acl checks, not a direct hit on the
+  # portal's own published port.
   - name: meta
-    _comment: 'pg-meta: /pg/* -> http://pg-meta:8080/*'
-    url: http://meta:8080/
+    _comment: 'pg-meta: /pg/* -> portal proxy -> http://pg-meta:8080/*'
+    url: http://portal:3000/api/proxy/meta/
     routes:
       - name: meta-all
         strip_path: true
@@ -403,6 +415,11 @@ services:
       - name: key-auth
         config:
           hide_credentials: false
+      - name: request-transformer
+        config:
+          add:
+            headers:
+              - "X-Kong-Proxy-Secret: $SUPABASE_SERVICE_KEY"
       - name: acl
         config:
           hide_groups_header: true

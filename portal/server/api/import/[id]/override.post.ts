@@ -1,5 +1,5 @@
 export default defineEventHandler(async (event) => {
-  await requireEditor(event);
+  const user = await requireEditor(event);
 
   const id = getRouterParam(event, "id")!;
   const pending = getPendingImport(id);
@@ -13,7 +13,7 @@ export default defineEventHandler(async (event) => {
   await dropTable("public", pending.tableName);
   await createTable("public", pending.tableName, columns);
   const records = pending.rows.map((row) => Object.fromEntries(columns.map((c, i) => [c.name, row[i]])));
-  await restInsert(pending.tableName, records);
+  await restInsert(pending.tableName, records, { actorEmail: user.email });
 
   deletePendingImport(id);
   return { status: "replaced", table: pending.tableName, columns: pending.columnNames, rowCount: pending.rows.length };

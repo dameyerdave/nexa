@@ -27,9 +27,14 @@ export default defineNuxtConfig({
     dashboardPassword: "",
     // pg-meta (supabase/postgres-meta), reached over the internal Docker
     // network - used by server/api/import.post.ts to create a new table
-    // from a spreadsheet's inferred column list, and to ensure the 2FA
-    // tables exist.
+    // from a spreadsheet's inferred column list, and to ensure the 2FA/
+    // audit-log tables exist.
     pgMetaUrl: "",
+    // PostgREST, reached directly over the internal Docker network rather
+    // than through Kong's public URL - see server/utils/postgrest.ts. Also
+    // the proxy target for Studio's own REST calls, identity-stamped for
+    // the audit log - see server/utils/studio-proxy.ts.
+    restInternalUrl: "",
     // Metabase is the portal's identity provider - see
     // server/utils/metabase-auth.ts. Reached over the internal Docker
     // network for login and admin lookups (never through Kong's published
