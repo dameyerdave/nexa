@@ -52,35 +52,35 @@ configured entirely through a single `.env` file.
 ```sh
 cp .env.example .env
 sh scripts/generate-keys.sh --update-env   # fills in all secrets/keys
+```
+
+Before the first `docker compose up -d`, set `METABASE_ADMIN_EMAIL` /
+`METABASE_ADMIN_PASSWORD` in `.env` to whatever you want your own admin
+login to be (they default to placeholders - change them). On first boot the
+portal creates that exact account in Metabase for you (as a superuser) via
+Metabase's own one-time setup API - see
+`portal/server/plugins/bootstrap-metabase-admin.ts` - so there's no manual
+setup wizard to click through, and no need to ever publish Metabase's port
+directly (its sign-in stays blocked there by design - see "Authentication"
+below). It's a no-op on every boot after the first.
+
+```sh
 docker compose up -d
 ```
 
-Metabase needs a one-time setup before the portal can use it as an identity
-provider:
-
-1. Temporarily publish Metabase's port (e.g. `docker compose port metabase
-   3000`, or add a `ports:` mapping) and open it directly, or run
-   `docker compose exec metabase` tooling - Metabase's own sign-in endpoint
-   is blocked on the public Kong port (`:8002`) by design (see
-   "Authentication" below).
-2. Walk through Metabase's setup wizard to create the **admin account**.
-   Put its email/password into `METABASE_ADMIN_EMAIL` /
-   `METABASE_ADMIN_PASSWORD` in `.env` - the portal uses this account
-   server-to-server (never exposed to the browser) to look up group
-   membership.
-3. Under **Admin > People > Groups**, create a group named `Editors` (or
-   whatever you set `METABASE_EDITOR_GROUP` to) and add whichever users
-   should get read/write dashboards plus Supabase Studio and Import Excel.
-   Everyone else gets read-only dashboards.
-4. Undo step 1 (remove the temporary port mapping) and
-   `docker compose up -d` again, so Metabase's sign-in is only reachable
-   through the portal.
+Sign in at the portal with that admin account (enrolling in 2FA on first
+login, same as any account), then create a group named `Editors` (or
+whatever you set `METABASE_EDITOR_GROUP` to) under Metabase's own
+**Admin > People > Groups** - reachable right there in the embedded
+dashboards view, since you're already signed in as a Metabase superuser.
+Add whichever users should get read/write dashboards plus Supabase Studio
+and Import Excel to it; everyone else gets read-only dashboards.
 
 From here on, new users create their own account at the portal's
-**Register** page (email/name/password + 2FA enrollment, all up front) and
-an admin approves them - and picks which group(s) they land in - from
+**Register** page (email/name/password + 2FA enrollment, all up front), and
+you approve them - picking which group(s) they land in - from
 **Registrations** in the portal itself. See "Authentication" below for the
-full flow. You (the admin) still sign in with the account from step 2.
+full flow.
 
 Once healthy:
 
@@ -187,12 +187,18 @@ ever created for it. Rejected emails can register again.
 > **Unverified assumption:** the `PUT /api/user/:id/password` admin
 > password-set call and the single-membership `POST /api/permissions/membership`
 > shape (`{group_id, user_id}`) in `portal/server/utils/metabase-auth.ts`'s
-> `createMetabaseUser` are based on Metabase's documented/source behavior,
-> not confirmed against a live instance (no Docker available while building
-> this). If either doesn't match your Metabase version, approving a
-> registration will fail loudly with a "Metabase error: ..." message
-> instead of silently creating a broken account - check that message
-> against your Metabase version's actual API if you hit it.
+> `createMetabaseUser` - and, separately, the `/api/session/properties`
+> `setup-token` field plus `POST /api/setup` body shape in
+> `portal/server/plugins/bootstrap-metabase-admin.ts` (used to auto-create
+> the initial admin account - see "Quick start") - are based on Metabase's
+> documented/source behavior, not confirmed against a live instance (no
+> Docker available while building this). If any of them don't match your
+> Metabase version, the affected call fails loudly (a "Metabase error: ..."
+> from approval, or a logged error from the bootstrap plugin, which just
+> leaves the admin account to be created by hand through Metabase's normal
+> setup wizard on its own port as a fallback) rather than silently
+> producing a broken account - check the message against your Metabase
+> version's actual API if you hit it.
 
 **Sign-in flow** (`portal/pages/login.vue`):
 
