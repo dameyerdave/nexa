@@ -14,6 +14,11 @@ interface MetabaseSessionResult {
   email: string;
 }
 
+export interface MetabaseGroup {
+  id: number;
+  name: string;
+}
+
 function metabaseHeaders(sessionToken?: string): Record<string, string> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (sessionToken) headers["X-Metabase-Session"] = sessionToken;
@@ -52,14 +57,16 @@ export async function metabaseLogin(username: string, password: string): Promise
 /** Validates a session token (as forwarded by the browser's
  * metabase.SESSION cookie, or a fresh one just obtained from login) and
  * returns who it belongs to, or null if invalid/expired. */
-export async function metabaseUserFromSession(sessionToken: string): Promise<{ userId: number; email: string } | null> {
+export async function metabaseUserFromSession(
+  sessionToken: string,
+): Promise<{ userId: number; email: string; isSuperuser: boolean } | null> {
   const config = useRuntimeConfig();
   const res = await fetch(`${config.metabaseInternalUrl}/api/user/current`, {
     headers: metabaseHeaders(sessionToken),
   });
   if (!res.ok) return null;
-  const user = (await res.json()) as { id: number; email: string };
-  return { userId: user.id, email: user.email };
+  const user = (await res.json()) as { id: number; email: string; is_superuser?: boolean };
+  return { userId: user.id, email: user.email, isSuperuser: !!user.is_superuser };
 }
 
 export async function metabaseLogout(sessionToken: string): Promise<void> {
@@ -113,4 +120,67 @@ export async function isMetabaseEditor(userId: number): Promise<boolean> {
   );
   const userMemberships = membership[String(userId)] ?? [];
   return userMemberships.some((m) => m.group_id === editorGroup.id);
+}
+
+/** Calls a Metabase admin-only endpoint with the portal's admin session,
+ * surfacing Metabase's own 4xx (e.g. "email already exists") to the
+ * caller instead of flattening everything to a generic 502. */
+async function metabaseAdminFetch<T>(path: string, opts: { method: string; body?: unknown }): Promise<T> {
+  const config = useRuntimeConfig();
+  const adminSession = await metabaseAdminSession();
+  try {
+    return await $fetch<T>(`${config.metabaseInternalUrl}${path}`, {
+      method: opts.method as any,
+      headers: metabaseHeaders(adminSession),
+      body: opts.body,
+    });
+  } catch (err: any) {
+    const status = err?.response?.status;
+    const detail = err?.data?.message || err?.data?.errors || err?.message || String(err);
+    throw createError({
+      statusCode: status && status < 500 ? status : 502,
+      statusMessage: `Metabase error: ${typeof detail === "string" ? detail : JSON.stringify(detail)}`,
+    });
+  }
+}
+
+/** Every group an approving admin can assign a newly-registered user to -
+ * excludes Metabase's built-in "All Users" (automatic for everyone) and
+ * "Administrators" (granting Metabase superuser stays a manual action in
+ * Metabase's own admin UI, not something this approval flow hands out). */
+export async function listAssignableGroups(): Promise<MetabaseGroup[]> {
+  const groups = await metabaseAdminFetch<MetabaseGroup[]>("/api/permissions/group", { method: "GET" });
+  return groups.filter((g) => g.name !== "All Users" && g.name !== "Administrators");
+}
+
+/** Creates a real Metabase account for an approved registration: the
+ * user, its password (set directly by the portal's admin session - see
+ * README.md "Authentication" for why this is safe here and the one part
+ * of this integration that couldn't be verified against a live Metabase
+ * instance while building it), and its group memberships. */
+export async function createMetabaseUser(input: {
+  email: string;
+  firstName: string;
+  lastName: string;
+  password: string;
+  groupIds: number[];
+}): Promise<number> {
+  const user = await metabaseAdminFetch<{ id: number }>("/api/user", {
+    method: "POST",
+    body: { email: input.email, first_name: input.firstName, last_name: input.lastName },
+  });
+
+  await metabaseAdminFetch(`/api/user/${user.id}/password`, {
+    method: "PUT",
+    body: { password: input.password },
+  });
+
+  for (const groupId of input.groupIds) {
+    await metabaseAdminFetch("/api/permissions/membership", {
+      method: "POST",
+      body: { group_id: groupId, user_id: user.id },
+    });
+  }
+
+  return user.id;
 }

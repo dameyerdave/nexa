@@ -5,6 +5,7 @@ export const METABASE_COOKIE = "metabase.SESSION";
 export interface PortalUser {
   id: number;
   email: string;
+  isAdmin: boolean;
 }
 
 /**
@@ -18,7 +19,7 @@ export async function getUserFromEvent(event: H3Event): Promise<PortalUser | nul
   const token = getCookie(event, METABASE_COOKIE);
   if (!token) return null;
   const user = await metabaseUserFromSession(token);
-  return user ? { id: user.userId, email: user.email } : null;
+  return user ? { id: user.userId, email: user.email, isAdmin: user.isSuperuser } : null;
 }
 
 export async function requireUser(event: H3Event): Promise<PortalUser> {
@@ -37,6 +38,17 @@ export async function requireEditor(event: H3Event): Promise<PortalUser> {
   const user = await requireUser(event);
   if (!(await isMetabaseEditor(user.id))) {
     throw createError({ statusCode: 403, statusMessage: "Editor access required" });
+  }
+  return user;
+}
+
+/** Gates the registration-approval dashboard - a Metabase superuser, not
+ * just an editor, since approving an account and handing it group
+ * membership is more sensitive than ordinary read/write dashboard access. */
+export async function requireAdmin(event: H3Event): Promise<PortalUser> {
+  const user = await requireUser(event);
+  if (!user.isAdmin) {
+    throw createError({ statusCode: 403, statusMessage: "Admin access required" });
   }
   return user;
 }

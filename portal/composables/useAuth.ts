@@ -1,6 +1,7 @@
 export interface CurrentUser {
   email: string;
   isEditor: boolean;
+  isAdmin: boolean;
 }
 
 /** Auth state is entirely cookie-based now (Metabase's own session cookie,

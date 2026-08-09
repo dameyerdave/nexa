@@ -44,12 +44,16 @@ export async function hasTotpEnrolled(userId: number): Promise<boolean> {
 /** Commits a first-time enrollment: the secret plus a fresh batch of
  * hashed recovery codes, replacing any previous ones for this user (there
  * should never be any, but re-enrollment after an admin resets a user's
- * 2FA is exactly the case where there might be). */
-export async function commitTotpEnrollment(
+ * 2FA is exactly the case where there might be). Shared by the ordinary
+ * first-login enrollment flow (plaintext codes, hashed here) and
+ * registration approval (already-hashed codes carried over from
+ * registration-store.ts, since the plaintext was only ever shown once to
+ * the user at signup time and was never persisted). */
+async function insertEnrollment(
   userId: number,
   email: string,
   secret: string,
-  recoveryCodes: string[],
+  recoveryCodeHashes: string[],
 ): Promise<void> {
   await ensureTwoFactorTables();
   await restInsert("portal_2fa", [{ metabase_user_id: userId, email, totp_secret: secret }], {
@@ -58,8 +62,26 @@ export async function commitTotpEnrollment(
   await restDelete("portal_2fa_recovery_codes", `metabase_user_id=eq.${userId}`);
   await restInsert(
     "portal_2fa_recovery_codes",
-    recoveryCodes.map((code) => ({ metabase_user_id: userId, code_hash: hashRecoveryCode(code) })),
+    recoveryCodeHashes.map((code_hash) => ({ metabase_user_id: userId, code_hash })),
   );
+}
+
+export async function commitTotpEnrollment(
+  userId: number,
+  email: string,
+  secret: string,
+  recoveryCodes: string[],
+): Promise<void> {
+  await insertEnrollment(userId, email, secret, recoveryCodes.map(hashRecoveryCode));
+}
+
+export async function commitTotpEnrollmentHashed(
+  userId: number,
+  email: string,
+  secret: string,
+  recoveryCodeHashes: string[],
+): Promise<void> {
+  await insertEnrollment(userId, email, secret, recoveryCodeHashes);
 }
 
 /** Consumes one unused recovery code for this user, if the given code

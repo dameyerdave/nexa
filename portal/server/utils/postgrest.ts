@@ -32,6 +32,25 @@ export async function restInsert(
   }
 }
 
+/** Same as restInsert, but returns the inserted row(s) - used where the
+ * caller needs the database-generated id back (e.g. a new registration's
+ * primary key) instead of just firing the insert. */
+export async function restInsertReturning<T = Record<string, unknown>>(
+  table: string,
+  records: Record<string, unknown>[],
+): Promise<T[]> {
+  const config = useRuntimeConfig();
+  try {
+    return await $fetch<T[]>(`${config.public.supabaseUrl}/rest/v1/${table}`, {
+      method: "POST",
+      headers: restHeaders({ Prefer: "return=representation" }),
+      body: records,
+    });
+  } catch (err: any) {
+    restError(err);
+  }
+}
+
 /** Fetches every value currently stored in one column of a table - used
  * to detect which rows in a re-imported workbook already exist. Paginates
  * until an empty page comes back rather than trusting a fixed page size,

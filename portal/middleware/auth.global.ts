@@ -6,11 +6,12 @@ export default defineNuxtRouteMiddleware(async (to) => {
     await init();
   }
 
-  if (!user.value && to.path !== "/login") {
+  const publicPaths = ["/login", "/register"];
+  if (!user.value && !publicPaths.includes(to.path)) {
     return navigateTo("/login");
   }
 
-  if (user.value && to.path === "/login") {
+  if (user.value && publicPaths.includes(to.path)) {
     return navigateTo("/");
   }
 });

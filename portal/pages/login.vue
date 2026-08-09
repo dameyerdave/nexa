@@ -18,7 +18,10 @@
             {{ loading ? "Please wait…" : "Sign in" }}
           </button>
         </form>
-        <p class="info">Accounts are created by an admin in Metabase - there's no self-service sign-up here.</p>
+        <p class="info">
+          New here? <NuxtLink to="/register">Register</NuxtLink> - an admin needs to approve your account before
+          you can sign in.
+        </p>
       </template>
 
       <template v-else-if="step === 'enroll'">

@@ -8,10 +8,11 @@ a Nuxt app, behind Metabase-backed login and portal-side 2FA.
 * **Metabase** - the portal's identity provider and the dashboarding tool.
   Admin-provisioned accounts, group-based access (editor vs. viewer), locked
   down so it can only be reached through the portal (see "Authentication").
-* **Portal** - a small Nuxt app: sign in (against Metabase) + a 2FA step,
-  then Metabase dashboards appear embedded as the main view. Editors also
-  get Supabase Studio and a small "Import Excel" tool that turns a
-  spreadsheet into a new table without touching SQL.
+* **Portal** - a small Nuxt app: register + 2FA enrollment, an admin
+  approval step, then sign in (against Metabase) + a 2FA check, and
+  Metabase dashboards appear embedded as the main view. Editors also get
+  Supabase Studio and a small "Import Excel" tool that turns a spreadsheet
+  into a new table without touching SQL.
 
 Everything is defined in [`docker-compose.yml`](./docker-compose.yml) and
 configured entirely through a single `.env` file.
@@ -71,15 +72,15 @@ provider:
    whatever you set `METABASE_EDITOR_GROUP` to) and add whichever users
    should get read/write dashboards plus Supabase Studio and Import Excel.
    Everyone else gets read-only dashboards.
-4. Create one Metabase account per real user under **Admin > People** -
-   there's no self-service sign-up.
-5. Undo step 1 (remove the temporary port mapping) and
+4. Undo step 1 (remove the temporary port mapping) and
    `docker compose up -d` again, so Metabase's sign-in is only reachable
    through the portal.
 
-Once set up, visit the portal and sign in with a Metabase account's
-credentials, then enroll in 2FA (a QR code for any TOTP authenticator app)
-on first login - see "Authentication" below for the full flow.
+From here on, new users create their own account at the portal's
+**Register** page (email/name/password + 2FA enrollment, all up front) and
+an admin approves them - and picks which group(s) they land in - from
+**Registrations** in the portal itself. See "Authentication" below for the
+full flow. You (the admin) still sign in with the account from step 2.
 
 Once healthy:
 
@@ -141,9 +142,57 @@ you ever scale `portal` beyond one instance.
 ## Authentication
 
 Metabase is the portal's identity provider - there's no Supabase Auth
-sign-in, no self-service sign-up, no OAuth. Accounts and group membership
-are entirely admin-provisioned in Metabase (see "Quick start" above), and
-the portal adds its own TOTP-based 2FA on top.
+sign-in, no OAuth. The portal adds its own TOTP-based 2FA on top, and gates
+every new account behind admin approval: anyone can register, but nobody
+can sign in until an admin approves them and picks their group(s).
+
+**Registration flow** (`portal/pages/register.vue`, `portal/server/api/auth/register/`):
+
+1. **Details.** Name, email, and a password - collected by the portal, not
+   Metabase (no Metabase account exists yet). The password is encrypted
+   (AES-256-GCM, key derived from `SERVICE_ROLE_KEY` - see
+   `portal/server/utils/secret-box.ts`) and held in a new
+   `portal_registrations` row with `status = 'pending'`, alongside a fresh
+   TOTP secret.
+2. **2FA enrollment**, right away, as part of signing up rather than at
+   first login - a QR code to scan, then one valid code to confirm it. A
+   set of one-time recovery codes is generated and shown once (hashed at
+   rest, same as ordinary 2FA - see `portal/server/utils/registration-store.ts`).
+3. The user sees a "pending approval" screen. They cannot sign in yet -
+   there is no Metabase account for them until an admin approves the
+   registration, so a login attempt just fails like a wrong password
+   would.
+
+**Approval** (`portal/pages/admin/registrations.vue`, restricted to Metabase
+superusers - see "Admin dashboard" below): the admin sees every pending
+registration, picks which Metabase group(s) to assign, and clicks Approve
+(or Reject). On approve, the portal:
+
+1. Creates the real Metabase account (`POST /api/user`) and sets its
+   password directly to the one chosen at registration
+   (`PUT /api/user/:id/password`, using the portal's admin session -
+   Metabase lets a superuser set another user's password this way without
+   the target's old password), then adds it to the chosen group(s)
+   (`POST /api/permissions/membership` per group).
+2. Migrates the already-hashed recovery codes and TOTP secret from the
+   registration row into the ordinary 2FA tables
+   (`commitTotpEnrollmentHashed`), so the user's authenticator app keeps
+   working unchanged - no re-enrollment after approval.
+3. Marks the registration `approved` and wipes its now-unneeded encrypted
+   password.
+
+Rejecting a registration just marks it `rejected`; no Metabase account is
+ever created for it. Rejected emails can register again.
+
+> **Unverified assumption:** the `PUT /api/user/:id/password` admin
+> password-set call and the single-membership `POST /api/permissions/membership`
+> shape (`{group_id, user_id}`) in `portal/server/utils/metabase-auth.ts`'s
+> `createMetabaseUser` are based on Metabase's documented/source behavior,
+> not confirmed against a live instance (no Docker available while building
+> this). If either doesn't match your Metabase version, approving a
+> registration will fail loudly with a "Metabase error: ..." message
+> instead of silently creating a broken account - check that message
+> against your Metabase version's actual API if you hit it.
 
 **Sign-in flow** (`portal/pages/login.vue`):
 
@@ -185,10 +234,22 @@ the `METABASE_EDITOR_GROUP` group (default `Editors`) get Supabase Studio
 and Import Excel in addition to read/write Metabase dashboards; everyone
 else gets read-only dashboards only.
 
-**Known limitation:** both the pending-login cache (step 1-2 above) and the
-Excel re-import cache are in-memory and single-process - they won't survive
-a portal restart mid-flow, or work correctly if `portal` is ever scaled
-beyond one replica.
+**Known limitation:** the pending-login cache (sign-in step 1-2 above) and
+the Excel re-import cache are in-memory and single-process - they won't
+survive a portal restart mid-flow, or work correctly if `portal` is ever
+scaled beyond one replica. Pending *registrations*, unlike pending logins,
+are durable (a Postgres row) and unaffected by this.
+
+### Admin dashboard
+
+Whoever created the first Metabase account during setup (Metabase's setup
+wizard always makes it a superuser) sees a **Registrations** link in the
+portal header - `portal/pages/admin/registrations.vue`, gated by
+`requireAdmin` (Metabase `is_superuser`, not the editor group - approving
+accounts and handing out group membership is more sensitive than ordinary
+read/write dashboard access). Promoting another user to superuser stays a
+manual step in Metabase's own admin UI; this dashboard only ever assigns
+ordinary groups.
 
 ### How Studio is embedded
 
@@ -235,4 +296,9 @@ portal/                   Nuxt 3 portal app (Dockerfile included)
 * Back up `volumes/db/data` (Supabase Postgres) - it holds every table,
   including ones created via "Import Excel", plus the `metabase` database
   (dashboards, users, groups) and the portal's own 2FA secrets/recovery
-  codes.
+  codes and pending registrations.
+* Don't rotate `SERVICE_ROLE_KEY` while any registration is still pending
+  approval - a pending registration's password is encrypted with a key
+  derived from it (see "Authentication"), so rotating invalidates any
+  password not yet approved (approval will fail decryption; the user just
+  registers again).
