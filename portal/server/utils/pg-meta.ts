@@ -29,3 +29,29 @@ export async function createTable(schema: string, table: string, columns: Column
       `grant select, insert, update, delete on "${schema}"."${table}" to authenticated;`,
   );
 }
+
+export async function tableExists(schema: string, table: string): Promise<boolean> {
+  const rows = (await pgMetaQuery(
+    `select 1 from information_schema.tables where table_schema = '${schema}' and table_name = '${table}'`,
+  )) as unknown[];
+  return Array.isArray(rows) && rows.length > 0;
+}
+
+export async function dropTable(schema: string, table: string): Promise<void> {
+  await pgMetaQuery(`drop table if exists "${schema}"."${table}"`);
+}
+
+/** Adds a UNIQUE constraint on `column` if one isn't already there -
+ * required for PostgREST's on_conflict upsert (see postgrest.ts's
+ * restInsert) to work for re-imports. Fails loudly via pgMetaQuery if
+ * existing rows already have duplicate values in that column. */
+export async function ensureUniqueConstraint(schema: string, table: string, column: string): Promise<void> {
+  const constraintName = `${table}_${column}_key`;
+  await pgMetaQuery(
+    `do $$ begin
+       if not exists (select 1 from pg_constraint where conname = '${constraintName}') then
+         alter table "${schema}"."${table}" add constraint "${constraintName}" unique ("${column}");
+       end if;
+     end $$;`,
+  );
+}

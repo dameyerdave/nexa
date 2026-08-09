@@ -48,16 +48,21 @@ export default defineEventHandler(async (event) => {
   }
 
   const columnNames = slugifyUnique(headers);
-  const columnTypes = inferColumnTypes(rows, columnNames.length);
-  const columns = columnNames.map((name, i) => ({ name, sqlType: columnTypes[i] }));
-
   const baseName = requestedName || filePart.filename!.replace(/\.[^.]+$/, "");
   const tableName = slugify(baseName, "import");
 
-  await createTable("public", tableName, columns);
+  if (!(await tableExists("public", tableName))) {
+    const columnTypes = inferColumnTypes(rows, columnNames.length);
+    const columns = columnNames.map((name, i) => ({ name, sqlType: columnTypes[i] }));
+    await createTable("public", tableName, columns);
+    const records = rows.map((row) => Object.fromEntries(columns.map((c, i) => [c.name, row[i]])));
+    await restInsert(tableName, records);
+    return { status: "created" as const, table: tableName, columns: columnNames, rowCount: rows.length };
+  }
 
-  const records = rows.map((row) => Object.fromEntries(columns.map((c, i) => [c.name, row[i]])));
-  await restInsert(tableName, records);
-
-  return { table: tableName, columns: columnNames, rowCount: rows.length };
+  // Table already exists - this is a re-import. Cache the parsed workbook
+  // so the follow-up override/append/resolve steps don't need it
+  // re-uploaded, and let the client decide what to do with it.
+  const importId = savePendingImport({ tableName, columnNames, rows });
+  return { status: "exists" as const, importId, table: tableName, columns: columnNames, rowCount: rows.length };
 });

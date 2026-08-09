@@ -82,8 +82,33 @@ the embedded Studio view and queryable over the REST API - no restart
 needed. See `portal/server/api/import.post.ts` for the exact logic
 (`portal/server/utils/slug.ts` for name sanitizing,
 `portal/server/utils/pg-meta.ts` for the pg-meta client). This is a v1: no
-column-type overrides, no update/append to an existing table, no chunking
-for very large workbooks.
+column-type overrides, no chunking for very large workbooks.
+
+### Re-importing into an existing table
+
+Uploading a file whose table name already exists doesn't silently fail or
+overwrite - the portal asks what to do:
+
+* **Override** - drops and recreates the table from this file, so it ends
+  up with exactly this file's rows and columns.
+* **Append** - you pick which uploaded column uniquely identifies a row
+  (an ID, an email, whatever's actually unique in your data - there's no
+  business key otherwise, only the table's internal auto-generated
+  `row_id`). The portal adds a `UNIQUE` constraint on that column if it's
+  not already there, checks which incoming rows collide with existing ones
+  on that column, and shows you the list: choose which duplicates to
+  overwrite (individually, or "all"/"none"), and everything else - new
+  rows plus the duplicates you picked - is written in one upsert
+  (PostgREST's `on_conflict` + `merge-duplicates`, so it's a single native
+  Postgres `INSERT ... ON CONFLICT DO UPDATE`, not a per-row loop). Rows
+  you don't select are left untouched.
+
+The upload is parsed once and held in memory on the portal server between
+these steps (`portal/server/utils/import-cache.ts`) so choosing
+override/append doesn't require re-uploading the file - it expires after
+15 minutes if abandoned. This only works as long as there's one portal
+container; it won't survive a restart or be visible to a second replica if
+you ever scale `portal` beyond one instance.
 
 ## Google SSO setup (optional)
 
