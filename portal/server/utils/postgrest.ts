@@ -28,6 +28,25 @@ function restError(err: any): never {
   throw createError({ statusCode: 502, statusMessage: `PostgREST error: ${detail}` });
 }
 
+/** Retries once or twice, a beat apart, specifically on PostgREST's
+ * "table not found in the schema cache" error (PGRST205) - confirmed live
+ * that `notify pgrst, 'reload schema'` (see pg-meta.ts/audit-store.ts/etc.)
+ * isn't synchronous: PostgREST needs on the order of ~100-200ms to act on
+ * it, so a table created and immediately written to in the same request
+ * (e.g. Import Excel's createTable -> restInsert) can otherwise 502 even
+ * though the notify already fired. Anything else fails immediately. */
+async function withSchemaCacheRetry<T>(fn: () => Promise<T>): Promise<T> {
+  const delaysMs = [300, 600];
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      if (err?.data?.code !== "PGRST205" || attempt >= delaysMs.length) throw err;
+      await new Promise((resolve) => setTimeout(resolve, delaysMs[attempt]));
+    }
+  }
+}
+
 /** Bulk-inserts rows into a table via PostgREST, using the service-role
  * key to bypass RLS. Pass `onConflict` (a column with a UNIQUE constraint -
  * see pg-meta.ts's ensureUniqueConstraint) to upsert instead: rows whose
@@ -46,7 +65,7 @@ export async function restInsert(
     headers.Prefer = "resolution=merge-duplicates,return=minimal";
   }
   try {
-    await $fetch(url.toString(), { method: "POST", headers, body: records });
+    await withSchemaCacheRetry(() => $fetch(url.toString(), { method: "POST", headers, body: records }));
   } catch (err: any) {
     restError(err);
   }
@@ -60,11 +79,13 @@ export async function restInsertReturning<T = Record<string, unknown>>(
   records: Record<string, unknown>[],
 ): Promise<T[]> {
   try {
-    return await $fetch<T[]>(`${restBaseUrl()}/${table}`, {
-      method: "POST",
-      headers: restHeaders({ Prefer: "return=representation" }),
-      body: records,
-    });
+    return await withSchemaCacheRetry(() =>
+      $fetch<T[]>(`${restBaseUrl()}/${table}`, {
+        method: "POST",
+        headers: restHeaders({ Prefer: "return=representation" }),
+        body: records,
+      }),
+    );
   } catch (err: any) {
     restError(err);
   }
@@ -82,9 +103,11 @@ export async function restSelectColumn(table: string, column: string): Promise<u
   for (;;) {
     let page: Record<string, unknown>[];
     try {
-      page = await $fetch<Record<string, unknown>[]>(`${restBaseUrl()}/${table}?select=${column}&offset=${offset}`, {
-        headers: restHeaders(),
-      });
+      page = await withSchemaCacheRetry(() =>
+        $fetch<Record<string, unknown>[]>(`${restBaseUrl()}/${table}?select=${column}&offset=${offset}`, {
+          headers: restHeaders(),
+        }),
+      );
     } catch (err: any) {
       restError(err);
     }
@@ -102,7 +125,9 @@ export async function restSelectColumn(table: string, column: string): Promise<u
  * function does no escaping of its own. */
 export async function restSelect<T = Record<string, unknown>>(table: string, query: string): Promise<T[]> {
   try {
-    return await $fetch<T[]>(`${restBaseUrl()}/${table}?${query}`, { headers: restHeaders() });
+    return await withSchemaCacheRetry(() =>
+      $fetch<T[]>(`${restBaseUrl()}/${table}?${query}`, { headers: restHeaders() }),
+    );
   } catch (err: any) {
     restError(err);
   }
@@ -116,9 +141,11 @@ export async function restSelectWithCount<T = Record<string, unknown>>(
   query: string,
 ): Promise<{ rows: T[]; total: number }> {
   try {
-    const res = await $fetch.raw<T[]>(`${restBaseUrl()}/${table}?${query}`, {
-      headers: restHeaders({ Prefer: "count=exact" }),
-    });
+    const res = await withSchemaCacheRetry(() =>
+      $fetch.raw<T[]>(`${restBaseUrl()}/${table}?${query}`, {
+        headers: restHeaders({ Prefer: "count=exact" }),
+      }),
+    );
     const rows = res._data ?? [];
     const range = res.headers.get("content-range"); // e.g. "0-49/123"
     const total = Number(range?.split("/")[1]);
@@ -130,11 +157,13 @@ export async function restSelectWithCount<T = Record<string, unknown>>(
 
 export async function restUpdate(table: string, query: string, patch: Record<string, unknown>): Promise<void> {
   try {
-    await $fetch(`${restBaseUrl()}/${table}?${query}`, {
-      method: "PATCH",
-      headers: restHeaders({ Prefer: "return=minimal" }),
-      body: patch,
-    });
+    await withSchemaCacheRetry(() =>
+      $fetch(`${restBaseUrl()}/${table}?${query}`, {
+        method: "PATCH",
+        headers: restHeaders({ Prefer: "return=minimal" }),
+        body: patch,
+      }),
+    );
   } catch (err: any) {
     restError(err);
   }
@@ -142,10 +171,12 @@ export async function restUpdate(table: string, query: string, patch: Record<str
 
 export async function restDelete(table: string, query: string): Promise<void> {
   try {
-    await $fetch(`${restBaseUrl()}/${table}?${query}`, {
-      method: "DELETE",
-      headers: restHeaders({ Prefer: "return=minimal" }),
-    });
+    await withSchemaCacheRetry(() =>
+      $fetch(`${restBaseUrl()}/${table}?${query}`, {
+        method: "DELETE",
+        headers: restHeaders({ Prefer: "return=minimal" }),
+      }),
+    );
   } catch (err: any) {
     restError(err);
   }

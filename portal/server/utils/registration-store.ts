@@ -44,6 +44,7 @@ export async function ensureRegistrationTable(): Promise<void> {
       decided_at timestamptz,
       decided_by text
     );
+    notify pgrst, 'reload schema';
   `);
   tableEnsured = true;
 }

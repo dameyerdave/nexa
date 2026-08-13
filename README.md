@@ -113,6 +113,20 @@ needed. See `portal/server/api/import.post.ts` for the exact logic
 `portal/server/utils/pg-meta.ts` for the pg-meta client). This is a v1: no
 column-type overrides, no chunking for very large workbooks.
 
+> **Confirmed live, and fixed:** creating a table via pg-meta and
+> immediately inserting into it via PostgREST (exactly what an import
+> does) can otherwise 502 with `PGRST205` ("Could not find the table ...
+> in the schema cache") - PostgREST doesn't pick up schema changes made
+> through a different connection (pg-meta's) instantly, even with an
+> explicit `notify pgrst, 'reload schema'` right after the DDL (confirmed
+> that alone isn't synchronous - it took ~100-200ms to take effect in
+> testing). `portal/server/utils/postgrest.ts` retries once or twice, a
+> beat apart, specifically on that error code, which was enough to make
+> the race unhittable in testing. The same notify is fired after every
+> portal-driven schema change (`pg-meta.ts`'s `createTable`/`dropTable`/
+> `ensureUniqueConstraint`, and each `ensure*Table*` bootstrap) so the
+> window is as small as possible in the first place.
+
 ### Re-importing into an existing table
 
 Uploading a file whose table name already exists doesn't silently fail or
@@ -184,21 +198,20 @@ registration, picks which Metabase group(s) to assign, and clicks Approve
 Rejecting a registration just marks it `rejected`; no Metabase account is
 ever created for it. Rejected emails can register again.
 
-> **Unverified assumption:** the `PUT /api/user/:id/password` admin
-> password-set call and the single-membership `POST /api/permissions/membership`
-> shape (`{group_id, user_id}`) in `portal/server/utils/metabase-auth.ts`'s
-> `createMetabaseUser` - and, separately, the `/api/session/properties`
-> `setup-token` field plus `POST /api/setup` body shape in
-> `portal/server/plugins/bootstrap-metabase-admin.ts` (used to auto-create
-> the initial admin account - see "Quick start") - are based on Metabase's
-> documented/source behavior, not confirmed against a live instance (no
-> Docker available while building this). If any of them don't match your
-> Metabase version, the affected call fails loudly (a "Metabase error: ..."
-> from approval, or a logged error from the bootstrap plugin, which just
-> leaves the admin account to be created by hand through Metabase's normal
-> setup wizard on its own port as a fallback) rather than silently
-> producing a broken account - check the message against your Metabase
-> version's actual API if you hit it.
+> Confirmed against a live instance (Metabase v0.53.13): the
+> `PUT /api/user/:id/password` admin password-set call,
+> `PUT /api/user/:id` for updating email, the single-membership
+> `POST /api/permissions/membership` shape (`{group_id, user_id}`), and the
+> `/api/session/properties` `setup-token` + `POST /api/setup` shape all work
+> exactly as documented above. One real gotcha found this way: **Metabase
+> rejects new passwords it considers too common**, checked against its own
+> blocklist independent of length or character mix - `change-me-too` (an
+> earlier default here) was one such rejection, which silently prevented
+> the initial admin account from ever being created. `.env.example`'s
+> placeholder is a password confirmed to pass; if the bootstrap plugin
+> still doesn't create the account, check `docker compose logs portal` for
+> `[bootstrap-metabase-admin]`, which now logs Metabase's actual rejection
+> reason instead of a generic error.
 
 **Sign-in flow** (`portal/pages/login.vue`):
 
@@ -280,11 +293,16 @@ header (`portal/pages/admin/audit.vue`) - filterable by table, operation
 (insert/update/delete), who made the change, a date range, and free-text
 search across the before/after row data, with pagination (`GET
 /api/admin/audit`, `portal/server/api/admin/audit.get.ts`). The free-text
-search relies on PostgREST's ability to cast a jsonb column to text inside
-an `or=(...)` filter (`old_data::text.ilike.*term*`) - unverified against
-a live instance like the other PostgREST specifics on this page; if it
-turns out not to be supported, that one filter errors out rather than the
-rest of the page breaking.
+search runs through a `search_audit_log(term)` database function
+(`public.search_audit_log`, defined in both `volumes/db/audit.sql` and
+`portal/server/utils/audit-store.ts`) called via PostgREST's `/rpc/`
+endpoint, rather than a plain URL filter - confirmed live that PostgREST's
+filter syntax can't cast a jsonb column to text for `ilike` (it errors with
+"operator does not exist: jsonb ~~\* unknown" even with an explicit
+`::text` cast on the column), while a SQL function doing the same cast
+works fine, and PostgREST supports layering the ordinary `table`/`operation`/
+date-range filters and pagination on top of an RPC that returns `setof
+audit_log`, same as querying the table directly.
 
 **Schema side** (`volumes/db/audit.sql`, self-healing copy in
 `portal/server/utils/audit-store.ts` for deployments that predate this
@@ -335,15 +353,18 @@ itself can't tell apart:
 > callers (no Metabase cookie) aren't otherwise affected - they just get
 > `changed_by = 'unknown'` in the audit log.
 >
-> **Unverified assumptions**, same caveat as elsewhere in this doc (no
-> Docker available while building this): PostgREST's `request.headers` GUC
-> shape and `PGRST_DB_PRE_REQUEST` hook behavior, and that Studio's Table
-> Editor / SQL Editor genuinely call `/rest/v1/*` and `/pg/*` directly from
-> the browser (rather than proxying through Studio's own Next.js backend,
-> which this design wouldn't intercept). If Studio's actual traffic
-> pattern differs, its own audit entries would keep showing `'unknown'`
-> rather than a real email - check your browser's network tab against
-> `volumes/api/kong.yml`'s routes to confirm if you rely on this.
+> Confirmed live: PostgREST's `request.headers` GUC shape and
+> `PGRST_DB_PRE_REQUEST` hook work exactly as described - a portal-driven
+> write (Import Excel) showed up in `audit_log` with the real signed-in
+> user's email, not `'unknown'`. Still genuinely unverified: whether
+> Studio's Table Editor / SQL Editor actually call `/rest/v1/*` and `/pg/*`
+> directly from the browser (rather than proxying through Studio's own
+> Next.js backend, which this design wouldn't intercept) - that part needs
+> exercising the embedded Studio UI itself to confirm, which wasn't done
+> here. If Studio's actual traffic pattern differs, its own audit entries
+> would keep showing `'unknown'` rather than a real email - check your
+> browser's network tab against `volumes/api/kong.yml`'s routes to confirm
+> if you rely on this.
 
 **On an already-running deployment**, `volumes/db/audit.sql` won't retroactively
 apply (Postgres only runs `docker-entrypoint-initdb.d` scripts once, against

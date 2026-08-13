@@ -76,6 +76,22 @@ export async function ensureAuditInfrastructure(): Promise<void> {
       when tag in ('CREATE TABLE')
       execute function public.attach_audit_trigger();
 
+    -- Free-text search across old/new row data for the admin audit log
+    -- viewer (server/api/admin/audit.get.ts). PostgREST's URL filter syntax
+    -- can't cast a jsonb column to text for ilike (confirmed live -
+    -- "operator does not exist: jsonb ~~* unknown" even with an explicit
+    -- ::text cast), so this is exposed as an RPC instead - PostgREST
+    -- supports composing ordinary column filters/order/limit on top of a
+    -- function that returns setof audit_log, same as querying the table
+    -- directly (also confirmed live).
+    create or replace function "public"."search_audit_log"(term text) returns setof "public"."audit_log" as $$
+      select * from public.audit_log
+      where old_data::text ilike '%' || term || '%'
+         or new_data::text ilike '%' || term || '%';
+    $$ language sql stable;
+
+    grant execute on function "public"."search_audit_log"(text) to service_role;
+
     do $$
     declare
       t record;
@@ -90,6 +106,8 @@ export async function ensureAuditInfrastructure(): Promise<void> {
         execute format('create trigger audit_trg after insert or update or delete on public.%I for each row execute function public.audit_trigger_fn()', t.tablename);
       end loop;
     end $$;
+
+    notify pgrst, 'reload schema';
   `);
   ensured = true;
 }

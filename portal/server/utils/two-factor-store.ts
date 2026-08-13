@@ -24,6 +24,7 @@ export async function ensureTwoFactorTables(): Promise<void> {
       code_hash text not null,
       used_at timestamptz
     );
+    notify pgrst, 'reload schema';
   `);
   tablesEnsured = true;
 }

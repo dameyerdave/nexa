@@ -34,17 +34,19 @@ export default defineEventHandler(async (event) => {
   if (actor) filters.push(`changed_by=ilike.*${encodeURIComponent(actor)}*`);
   if (from) filters.push(`changed_at=gte.${encodeURIComponent(from)}`);
   if (to) filters.push(`changed_at=lte.${encodeURIComponent(to)}`);
-  if (search) {
-    // PostgREST's `or=(...)` combinator, searching both the before/after
-    // row data cast to text - no native "search this jsonb column" filter,
-    // so this is the closest to free-text without raw SQL.
-    const term = encodeURIComponent(`*${search}*`);
-    filters.push(`or=(old_data::text.ilike.${term},new_data::text.ilike.${term})`);
-  }
+  // Free-text search across old/new row data goes through the
+  // search_audit_log() RPC (see audit-store.ts) rather than a PostgREST
+  // URL filter - PostgREST can't cast jsonb to text for ilike in a filter
+  // (confirmed live: "operator does not exist: jsonb ~~* unknown"), but it
+  // does support layering ordinary column filters/order/limit on top of a
+  // function that returns setof audit_log, so everything else below still
+  // applies unchanged.
+  if (search) filters.push(`term=${encodeURIComponent(search)}`);
   filters.push("order=changed_at.desc");
   filters.push(`limit=${limit}`);
   filters.push(`offset=${offset}`);
 
-  const { rows, total } = await restSelectWithCount<AuditRow>("audit_log", filters.join("&"));
+  const endpoint = search ? "rpc/search_audit_log" : "audit_log";
+  const { rows, total } = await restSelectWithCount<AuditRow>(endpoint, filters.join("&"));
   return { rows, total, limit, offset };
 });
