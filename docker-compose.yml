@@ -40,11 +40,9 @@ services:
       # bulk-insert parsed spreadsheet rows via PostgREST, and to store
       # each user's 2FA secret/recovery codes (server/utils/two-factor-store.ts).
       NUXT_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
-      # The shared Basic Auth credential Kong puts in front of Studio (see
-      # volumes/api/kong.yml's `dashboard` route) - embedded into the
-      # iframe URL server-side so signed-in editors aren't prompted for it.
-      NUXT_DASHBOARD_USERNAME: ${DASHBOARD_USERNAME}
-      NUXT_DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
+      # Studio, reached directly over the internal Docker network - see
+      # server/utils/studio-proxy.ts.
+      NUXT_STUDIO_INTERNAL_URL: http://studio:3000
       # pg-meta, reached over the internal Docker network - used by
       # server/api/import.post.ts to create a new table from a
       # spreadsheet's inferred column list.
@@ -156,7 +154,7 @@ services:
       KONG_DNS_ORDER: LAST,A,CNAME
       KONG_DNS_NOT_FOUND_TTL: 1
       KONG_DNS_VALID_TTL: 5
-      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth,request-termination,ip-restriction,post-function
+      KONG_PLUGINS: request-transformer,response-transformer,cors,key-auth,acl,basic-auth,request-termination,ip-restriction,post-function
       KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
       KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
       KONG_PROXY_ACCESS_LOG: /dev/stdout combined
@@ -168,8 +166,6 @@ services:
       SUPABASE_SECRET_KEY: ${SUPABASE_SECRET_KEY:-}
       ANON_KEY_ASYMMETRIC: ${ANON_KEY_ASYMMETRIC:-}
       SERVICE_ROLE_KEY_ASYMMETRIC: ${SERVICE_ROLE_KEY_ASYMMETRIC:-}
-      DASHBOARD_USERNAME: ${DASHBOARD_USERNAME}
-      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
     entrypoint: ["/bin/sh", "/home/kong/kong-entrypoint.sh"]
 
   auth:

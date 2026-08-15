@@ -5,7 +5,6 @@ _transform: true
 ### Consumers / Users
 ###
 consumers:
-  - username: DASHBOARD
   - username: anon
     keyauth_credentials:
       - key: $SUPABASE_ANON_KEY
@@ -23,14 +22,6 @@ acls:
     group: anon
   - consumer: service_role
     group: admin
-
-###
-### Dashboard credentials
-###
-basicauth_credentials:
-  - consumer: DASHBOARD
-    username: '$DASHBOARD_USERNAME'
-    password: '$DASHBOARD_PASSWORD'
 
 ###
 ### API Routes
@@ -470,8 +461,18 @@ services:
 
   ## Protected Dashboard - catch all remaining routes
   - name: dashboard
-    _comment: 'Studio: /* -> http://studio:3000/*'
-    url: http://studio:3000/
+    _comment: >
+      Studio: /* -> portal proxy -> http://studio:3000/*. Routed through the
+      portal (not straight to studio:3000) so the portal can require a real,
+      editor-level Metabase session before forwarding - see
+      server/api/proxy/studio/[...path].ts. Studio's embedded service_role
+      key means anyone who can reach its shell has full database access, so
+      this replaced the original design (Kong Basic Auth with credentials
+      embedded in the iframe URL) once that turned out to be blocked outright
+      by modern browsers for cross-origin iframe src - confirmed live.
+      X-Kong-Proxy-Secret proves to the portal this came through Kong's
+      key-auth checks, not a direct hit on the portal's own published port.
+    url: http://portal:3000/api/proxy/studio/
     routes:
       - name: dashboard-all
         strip_path: true
@@ -479,9 +480,21 @@ services:
           - /
     plugins:
       - name: cors
-      - name: basic-auth
+      - name: request-transformer
         config:
-          hide_credentials: true
+          add:
+            headers:
+              - "X-Kong-Proxy-Secret: $SUPABASE_SERVICE_KEY"
+      - name: response-transformer
+        config:
+          remove:
+            headers:
+              - X-Frame-Options
+              - Content-Security-Policy
+        # Studio sends X-Frame-Options: DENY and a frame-ancestors 'none'
+        # CSP by default (confirmed live) - a generic clickjacking default,
+        # not tied to any paid feature, safe to drop here since this route
+        # is already gated by the editor-session proxy above.
 
   ## Metabase - served on its OWN listener (net.dst.port 8002, published as
   ## ${KONG_METABASE_PORT:-8002}), not a subpath of the routes above: like
@@ -510,10 +523,25 @@ services:
           message: "Direct sign-in is disabled - sign in through the portal."
 
   - name: metabase
-    _comment: 'Metabase: net.dst.port 8002 -> http://metabase:3000/* (unchanged path - see comment above)'
+    _comment: >
+      Metabase: net.dst.port 8002 -> http://metabase:3000/* (unchanged path -
+      see comment above). Strips the frame-ancestors 'none' CSP Metabase
+      sends by default - full interactive iframe embedding is an
+      Enterprise/Pro-only feature there (confirmed live: enabling it and
+      setting an allowed origin both fail outright on the open-source
+      image this stack uses), and this is a deliberate choice to embed our
+      own self-hosted instance for our own authenticated users anyway,
+      through the same reverse proxy already in front of it - see
+      README.md "Authentication" for the full reasoning.
     url: http://metabase:3000/
     routes:
       - name: metabase-all
         expression: 'net.dst.port == 8002'
     plugins:
       - name: cors
+      - name: response-transformer
+        config:
+          remove:
+            headers:
+              - X-Frame-Options
+              - Content-Security-Policy

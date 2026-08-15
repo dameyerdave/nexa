@@ -19,12 +19,12 @@ export default defineNuxtConfig({
     // bulk-insert parsed spreadsheet rows via PostgREST, and by
     // server/utils/two-factor-store.ts for the portal's own TOTP tables.
     serviceRoleKey: "",
-    // The shared Basic Auth credential Kong puts in front of Studio (see
-    // volumes/api/kong.yml's `dashboard` route) - used by
-    // server/api/studio-link.get.ts to build an embeddable iframe URL so
-    // signed-in editors aren't prompted for it separately.
-    dashboardUsername: "",
-    dashboardPassword: "",
+    // Studio, reached directly over the internal Docker network - the proxy
+    // target for Studio's own shell (Kong's `dashboard` route), gated on a
+    // real editor session rather than Kong's old Basic Auth (embedded
+    // credentials in an iframe src turned out to be blocked outright by
+    // modern browsers) - see server/utils/studio-proxy.ts.
+    studioInternalUrl: "",
     // pg-meta (supabase/postgres-meta), reached over the internal Docker
     // network - used by server/api/import.post.ts to create a new table
     // from a spreadsheet's inferred column list, and to ensure the 2FA/

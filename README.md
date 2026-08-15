@@ -270,17 +270,63 @@ read/write dashboard access). Promoting another user to superuser stays a
 manual step in Metabase's own admin UI; this dashboard only ever assigns
 ordinary groups.
 
-### How Studio is embedded
+### How Studio and Metabase are embedded
 
-Self-hosted Studio has no built-in SSO of its own; Kong protects it with
-HTTP Basic Auth (`DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD`, see the
-`dashboard` route in `volumes/api/kong.yml`). Rather than prompt a second
-time, `portal/server/api/studio-link.get.ts` builds the Studio URL with
-those credentials embedded (`https://user:pass@host/`) after verifying the
-caller is signed in *and* in the editor group, and the portal renders that
-URL in an `<iframe>` (`portal/pages/index.vue`) - so from the user's point
-of view, signing into the portal is the only login step. Viewers never see
-this option.
+Both Studio and Metabase refuse to be framed by default, and Metabase's
+frontend needs one more thing on top: two real bugs, both confirmed
+against a live stack rather than assumed:
+
+1. **Both send frame-busting response headers.** Studio sends
+   `X-Frame-Options: DENY` and `Content-Security-Policy: frame-ancestors
+   'none'`; Metabase sends the same CSP. Browsers refuse to render either
+   in an `<iframe>` at all otherwise. `volumes/api/kong.yml`'s `dashboard`
+   (Studio) and `metabase` routes now strip both headers with a
+   `response-transformer` plugin before the response reaches the browser.
+2. **Full interactive embedding of Metabase specifically is an
+   Enterprise/Pro-only feature** - confirmed live: enabling
+   `enable-embedding-interactive` succeeds, but setting
+   `embedding-app-origins-interactive` (the allowed-origins list, required
+   for the CSP to actually relax) fails outright with "feature :embedding
+   is not available" on the open-source image this stack uses. There's no
+   config path to a working `frame-ancestors` from Metabase's own settings
+   - stripping the header at Kong is the only way to embed it at all on
+   this edition. This is a deliberate choice to embed our own self-hosted,
+   AGPL-licensed instance for our own authenticated users, through the
+   same reverse proxy already in front of it - not something Metabase
+   Inc.'s embedding product is involved in, since none of its actual
+   features (JWT SSO tokens, the embedding SDK, official support) are
+   used here.
+
+**Studio's original access control doesn't survive browsers either.** The
+first design here (matching Studio's original self-hosted docs) had Kong
+protect it with HTTP Basic Auth and the portal build an iframe `src` with
+credentials embedded in the URL (`https://user:pass@host/`) so users
+weren't prompted separately. Confirmed live that this is silently blocked:
+modern browsers refuse credentialed subresource requests for a
+cross-origin `<iframe src>` (the portal and Studio are on the same
+hostname but different ports here, which still counts as cross-origin),
+so the iframe just failed to load with no useful error. Kong's `dashboard`
+route no longer uses Basic Auth at all - it's routed through the portal
+instead (`http://portal:3000/api/proxy/studio/`, same pattern as the
+`meta`/`rest-v1` routes added for the audit log), and
+`server/utils/studio-proxy.ts`'s `proxyStudioShellRequest` requires a
+*real, editor-level* Metabase session (checked from the browser's own
+`metabase.SESSION` cookie, cached ~60s since Studio's SPA can fire dozens
+of asset requests per page load) before forwarding anything - this matters
+more than it might look, since Studio's frontend bundle embeds the
+`service_role` key for its own use, so anyone who can load the shell at
+all effectively gets full, unrestricted database access regardless of
+what they click on. Verified live: an account with no group membership
+(a viewer) gets a 403 hitting Studio at all, while an editor gets the real
+page.
+
+One Nitro-specific gotcha hit while building this, worth knowing if you
+touch the proxy routes: a catch-all route file (`[...path].ts`) does
+*not* match its own parent path with zero segments (confirmed live -
+`/api/proxy/studio/foo` matches, `/api/proxy/studio/` doesn't, silently
+falling through to the SPA instead of 403ing). Since Kong's root request
+for Studio's own homepage hits exactly that empty-path case, each proxy
+directory also has a plain `index.ts` sibling handling it explicitly.
 
 ## Admin CLI
 
@@ -447,16 +493,12 @@ portal/                   Nuxt 3 portal app (Dockerfile included)
 * Put a TLS-terminating reverse proxy (Caddy, nginx, Traefik) in front of
   `portal`, `kong` (`:8000`), and Kong's Metabase listener (`:8002`), and
   update `SUPABASE_PUBLIC_URL` and `METABASE_PUBLIC_URL` in `.env` to your
-  real HTTPS domains. Note that embedding Studio/Metabase in an `<iframe>`
-  only works if neither service itself nor anything in front of it (Kong, a
-  reverse proxy) sends `X-Frame-Options`/CSP `frame-ancestors` headers that
-  block framing - Kong's own config here doesn't add any, but this hasn't
-  been verified against running Studio/Metabase containers (no Docker
-  available while building this), so check the browser console for a
-  blocked-frame error on first run; if either service sends one, the fix is
-  either stripping that response header at Kong (a `response-transformer`
-  plugin on the relevant route) or falling back to opening it in a new tab
-  instead of embedding it.
+  real HTTPS domains. If you add another proxy layer of your own in front
+  of Kong, make sure it doesn't reintroduce `X-Frame-Options`/CSP
+  `frame-ancestors` headers on the way through - Kong already strips both
+  from Studio's and Metabase's own responses (see "How Studio and Metabase
+  are embedded"), but a well-meaning security header added at your outer
+  proxy would break embedding the same way the original headers did.
 * Metabase's session cookie is relayed by the portal onto its own response
   (see "Authentication" above) rather than proxied through a shared origin,
   so the portal and Metabase's public URL need to share the same hostname

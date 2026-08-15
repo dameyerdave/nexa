@@ -62,7 +62,6 @@ s3_protocol_access_key_id=$(gen_hex 16)
 s3_protocol_access_key_secret=$(gen_hex 32)
 
 postgres_password=$(gen_hex 16)
-dashboard_password=$(gen_hex 16)
 pooler_tenant_id=$(gen_hex 8)
 
 echo ""
@@ -79,7 +78,6 @@ echo "S3_PROTOCOL_ACCESS_KEY_ID=${s3_protocol_access_key_id}"
 echo "S3_PROTOCOL_ACCESS_KEY_SECRET=${s3_protocol_access_key_secret}"
 echo ""
 echo "POSTGRES_PASSWORD=${postgres_password}"
-echo "DASHBOARD_PASSWORD=${dashboard_password}"
 echo "POOLER_TENANT_ID=${pooler_tenant_id}"
 echo ""
 
@@ -120,7 +118,6 @@ sed \
     -e "s|^S3_PROTOCOL_ACCESS_KEY_ID=.*$|S3_PROTOCOL_ACCESS_KEY_ID=${s3_protocol_access_key_id}|" \
     -e "s|^S3_PROTOCOL_ACCESS_KEY_SECRET=.*$|S3_PROTOCOL_ACCESS_KEY_SECRET=${s3_protocol_access_key_secret}|" \
     -e "s|^POSTGRES_PASSWORD=.*$|POSTGRES_PASSWORD=${postgres_password}|" \
-    -e "s|^DASHBOARD_PASSWORD=.*$|DASHBOARD_PASSWORD=${dashboard_password}|" \
     -e "s|^POOLER_TENANT_ID=.*$|POOLER_TENANT_ID=${pooler_tenant_id}|" \
     .env
 
