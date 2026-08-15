@@ -11,6 +11,23 @@ let ensured = false;
 export async function ensureAuditInfrastructure(): Promise<void> {
   if (ensured) return;
   await pgMetaQuery(`
+    create schema if not exists "admin";
+    grant usage on schema "admin" to service_role;
+
+    -- Migrates real data from a pre-"admin"-schema deployment - a plain
+    -- "create table if not exists" below wouldn't touch this, it'd just
+    -- leave the old, still-populated public.audit_log orphaned and start
+    -- a second, empty admin.audit_log from scratch. No-op on a deployment
+    -- that never had public.audit_log (fresh installs, or one that's
+    -- already migrated).
+    do $$
+    begin
+      if exists (select 1 from pg_tables where schemaname = 'public' and tablename = 'audit_log')
+         and not exists (select 1 from pg_tables where schemaname = 'admin' and tablename = 'audit_log') then
+        alter table public.audit_log set schema admin;
+      end if;
+    end $$;
+
     create or replace function "public"."pgrst_pre_request"() returns void as $$
     begin
       perform set_config(
@@ -23,7 +40,7 @@ export async function ensureAuditInfrastructure(): Promise<void> {
 
     grant execute on function "public"."pgrst_pre_request"() to anon, authenticated, service_role;
 
-    create table if not exists "public"."audit_log" (
+    create table if not exists "admin"."audit_log" (
       id bigint generated always as identity primary key,
       table_name text not null,
       operation text not null,
@@ -33,27 +50,27 @@ export async function ensureAuditInfrastructure(): Promise<void> {
       changed_at timestamptz not null default now()
     );
 
-    create or replace function "public"."audit_trigger_fn"() returns trigger as $$
+    create or replace function "admin"."audit_trigger_fn"() returns trigger as $$
     declare
       actor text;
     begin
       actor := coalesce(nullif(current_setting('app.current_user_email', true), ''), 'unknown');
       if (tg_op = 'INSERT') then
-        insert into public.audit_log(table_name, operation, new_data, changed_by)
+        insert into admin.audit_log(table_name, operation, new_data, changed_by)
         values (tg_table_name, tg_op, to_jsonb(new), actor);
         return new;
       elsif (tg_op = 'UPDATE') then
-        insert into public.audit_log(table_name, operation, old_data, new_data, changed_by)
+        insert into admin.audit_log(table_name, operation, old_data, new_data, changed_by)
         values (tg_table_name, tg_op, to_jsonb(old), to_jsonb(new), actor);
         return new;
       elsif (tg_op = 'DELETE') then
-        insert into public.audit_log(table_name, operation, old_data, changed_by)
+        insert into admin.audit_log(table_name, operation, old_data, changed_by)
         values (tg_table_name, tg_op, to_jsonb(old), actor);
         return old;
       end if;
       return null;
     end;
-    $$ language plpgsql security definer set search_path = public;
+    $$ language plpgsql security definer set search_path = admin;
 
     create or replace function "public"."attach_audit_trigger"() returns event_trigger as $$
     declare
@@ -61,9 +78,9 @@ export async function ensureAuditInfrastructure(): Promise<void> {
     begin
       for obj in select * from pg_event_trigger_ddl_commands() where command_tag = 'CREATE TABLE'
       loop
-        if obj.schema_name = 'public' and obj.object_identity !~ '^public\.(audit_log|portal_.*)$' then
+        if obj.schema_name = 'public' then
           execute format(
-            'drop trigger if exists audit_trg on %s; create trigger audit_trg after insert or update or delete on %s for each row execute function public.audit_trigger_fn()',
+            'drop trigger if exists audit_trg on %s; create trigger audit_trg after insert or update or delete on %s for each row execute function admin.audit_trigger_fn()',
             obj.object_identity, obj.object_identity
           );
         end if;
@@ -76,21 +93,15 @@ export async function ensureAuditInfrastructure(): Promise<void> {
       when tag in ('CREATE TABLE')
       execute function public.attach_audit_trigger();
 
-    -- Free-text search across old/new row data for the admin audit log
-    -- viewer (server/api/admin/audit.get.ts). PostgREST's URL filter syntax
-    -- can't cast a jsonb column to text for ilike (confirmed live -
-    -- "operator does not exist: jsonb ~~* unknown" even with an explicit
-    -- ::text cast), so this is exposed as an RPC instead - PostgREST
-    -- supports composing ordinary column filters/order/limit on top of a
-    -- function that returns setof audit_log, same as querying the table
-    -- directly (also confirmed live).
-    create or replace function "public"."search_audit_log"(term text) returns setof "public"."audit_log" as $$
-      select * from public.audit_log
+    create or replace function "admin"."search_audit_log"(term text) returns setof "admin"."audit_log" as $$
+      select * from admin.audit_log
       where old_data::text ilike '%' || term || '%'
          or new_data::text ilike '%' || term || '%';
     $$ language sql stable;
 
-    grant execute on function "public"."search_audit_log"(text) to service_role;
+    grant execute on function "admin"."search_audit_log"(text) to service_role;
+    grant all on all tables in schema "admin" to service_role;
+    alter default privileges in schema "admin" grant all on tables to service_role;
 
     do $$
     declare
@@ -103,7 +114,7 @@ export async function ensureAuditInfrastructure(): Promise<void> {
           and tablename not like 'portal\_%'
       loop
         execute format('drop trigger if exists audit_trg on public.%I', t.tablename);
-        execute format('create trigger audit_trg after insert or update or delete on public.%I for each row execute function public.audit_trigger_fn()', t.tablename);
+        execute format('create trigger audit_trg after insert or update or delete on public.%I for each row execute function admin.audit_trigger_fn()', t.tablename);
       end loop;
     end $$;
 

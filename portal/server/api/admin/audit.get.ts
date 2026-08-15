@@ -47,6 +47,6 @@ export default defineEventHandler(async (event) => {
   filters.push(`offset=${offset}`);
 
   const endpoint = search ? "rpc/search_audit_log" : "audit_log";
-  const { rows, total } = await restSelectWithCount<AuditRow>(endpoint, filters.join("&"));
+  const { rows, total } = await restSelectWithCount<AuditRow>(endpoint, filters.join("&"), { schema: "admin" });
   return { rows, total, limit, offset };
 });

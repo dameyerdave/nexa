@@ -522,6 +522,28 @@ services:
           status_code: 403
           message: "Direct sign-in is disabled - sign in through the portal."
 
+  - name: metabase-add-database-block
+    _comment: >
+      Metabase: block POST /api/database on the published port - no native
+      Metabase setting exists to stop even a superuser from adding a
+      database connection (that granularity of admin permission is an
+      Enterprise-only feature - confirmed live via GET /api/setting,
+      enable-advanced-permissions? is false and unavailable on this
+      edition), so this is enforced at the network layer instead. Doesn't
+      affect the portal - it never calls this endpoint - or anything
+      reaching Metabase over the internal Docker network directly (same
+      trust boundary as metabase-session-block above).
+    url: http://metabase:3000/api/database
+    routes:
+      - name: metabase-add-database-block-route
+        expression: 'net.dst.port == 8002 && http.path == "/api/database" && http.method == "POST"'
+        priority: 1000
+    plugins:
+      - name: request-termination
+        config:
+          status_code: 403
+          message: "Adding database connections is disabled on this instance."
+
   - name: metabase
     _comment: >
       Metabase: net.dst.port 8002 -> http://metabase:3000/* (unchanged path -

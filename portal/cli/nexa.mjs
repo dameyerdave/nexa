@@ -132,11 +132,19 @@ async function listGroups(session) {
   return metabaseFetch(session, "/api/permissions/group");
 }
 
+// Every PostgREST call this CLI makes targets the "admin" schema
+// (portal_2fa, portal_2fa_recovery_codes, audit_log - see
+// volumes/db/audit.sql) - Accept-Profile for reads,
+// Content-Profile for writes (confirmed live PostgREST needs both, one
+// header doesn't cover both directions). Harmless to send both on every
+// request regardless of method.
 function restHeaders(extra = {}) {
   return {
     apikey: SERVICE_ROLE_KEY,
     Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
     "Content-Type": "application/json",
+    "Accept-Profile": "admin",
+    "Content-Profile": "admin",
     ...extra,
   };
 }

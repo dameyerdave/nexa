@@ -63,23 +63,40 @@ export async function proxyStudioRequest(event: H3Event, targetBaseUrl: string):
   await forwardRequest(event, targetBaseUrl, email ? { "x-user-email": email } : {});
 }
 
+/** Confirmed live (curl'd the actual response) that Studio's own frontend
+ * calls these paths - some on a recurring background timer, not just page
+ * load - without the browser's session cookie attached at all (not a
+ * caching/race issue like the burst-of-parallel-requests bug fixed
+ * earlier - these fail every single time, consistently). Both are
+ * genuinely non-sensitive: a version string and a static PWA manifest,
+ * nothing that touches data or the embedded service_role key. Gating them
+ * anyway just breaks Studio's own polling with no real security benefit,
+ * so they're exempted from the editor check below - everything else,
+ * including the root page (where the service_role key actually gets
+ * embedded), still requires it. */
+const SHELL_PUBLIC_PATHS = [/^api\/get-deployment-commit$/, /^favicon\//];
+
 /** Proxies a request to Studio's own shell (Kong's `dashboard` route) -
  * unlike proxyStudioRequest above, this one requires the caller to
- * actually be an editor, not just signed in. Studio's frontend bundle
- * embeds the service_role key (needed for its own calls to
- * PostgREST/pg-meta), so anyone who can load the shell at all gets full
- * database access regardless of what they click on - this is the only
- * thing standing between "signed in" and "full admin over the database"
- * now that Kong's Basic Auth in front of Studio is gone (embedded
- * credentials in an iframe src turned out to be blocked outright by
- * modern browsers - confirmed live, see kong.yml's `dashboard` route). */
+ * actually be an editor, not just signed in (except SHELL_PUBLIC_PATHS
+ * above). Studio's frontend bundle embeds the service_role key (needed
+ * for its own calls to PostgREST/pg-meta), so anyone who can load the
+ * shell at all gets full database access regardless of what they click
+ * on - this is the only thing standing between "signed in" and "full
+ * admin over the database" now that Kong's Basic Auth in front of Studio
+ * is gone (embedded credentials in an iframe src turned out to be
+ * blocked outright by modern browsers - confirmed live, see kong.yml's
+ * `dashboard` route). */
 export async function proxyStudioShellRequest(event: H3Event, targetBaseUrl: string): Promise<void> {
   checkProxySecret(event);
 
-  const token = getCookie(event, METABASE_COOKIE);
-  const isEditor = token ? await resolveIsEditorForSession(token) : false;
-  if (!isEditor) {
-    throw createError({ statusCode: 403, statusMessage: "Editor access required" });
+  const subPath = getRouterParam(event, "path") ?? "";
+  if (!SHELL_PUBLIC_PATHS.some((re) => re.test(subPath))) {
+    const token = getCookie(event, METABASE_COOKIE);
+    const isEditor = token ? await resolveIsEditorForSession(token) : false;
+    if (!isEditor) {
+      throw createError({ statusCode: 403, statusMessage: "Editor access required" });
+    }
   }
 
   await forwardRequest(event, targetBaseUrl);

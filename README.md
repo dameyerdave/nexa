@@ -62,7 +62,11 @@ Metabase's own one-time setup API - see
 `portal/server/plugins/bootstrap-metabase-admin.ts` - so there's no manual
 setup wizard to click through, and no need to ever publish Metabase's port
 directly (its sign-in stays blocked there by design - see "Authentication"
-below). It's a no-op on every boot after the first.
+below). The same boot step also connects Metabase to the real database
+(schema-filtered to `public` only - see "How Studio and Metabase are
+embedded") and removes Metabase's bundled sample database/example
+dashboard, so there's nothing to see in Metabase until real data exists.
+All of this is idempotent - a no-op on every boot once it's done once.
 
 ```sh
 docker compose up -d
@@ -336,6 +340,55 @@ falling through to the SPA instead of 403ing). Since Kong's root request
 for Studio's own homepage hits exactly that empty-path case, each proxy
 directory also has a plain `index.ts` sibling handling it explicitly.
 
+A related one, also only surfacing under real browser use rather than a
+quick check: Studio's own frontend calls a couple of paths
+(`/api/get-deployment-commit`, `/favicon/manifest.json` - a version string
+and a static PWA manifest, confirmed non-sensitive by reading their actual
+response bodies) on a recurring background timer, without the session
+cookie attached at all - not a timing/race issue, they fail every single
+time. `proxyStudioShellRequest`'s `SHELL_PUBLIC_PATHS` allowlist exempts
+just these two from the editor check; everything else, including the root
+page where the `service_role` key actually gets embedded, still requires
+it. Separately, `metabaseAdminSession()` (used for the editor check above,
+among other things) originally did a fresh Metabase admin login on *every*
+call - Studio's SPA firing a burst of parallel requests on mount was
+enough concurrent logins racing each other to cause real, intermittent
+403s on top of the above. Now cached (~10 min) and de-duplicated, same for
+the session-to-email and session-to-is-editor lookups - confirmed live
+with a 30-request concurrent burst that failed intermittently before and
+succeeded every time after.
+
+### Keeping Metabase to just the dashboards
+
+Administrative data - the audit log, 2FA secrets/recovery codes, pending
+registrations - lives in a separate `admin` Postgres schema, not `public`
+(`volumes/db/audit.sql`, `portal/server/utils/two-factor-store.ts`,
+`portal/server/utils/registration-store.ts` - each self-heals an
+already-running deployment by migrating the old `public.*` tables over
+with `alter table ... set schema admin`, preserving their data). No grants
+to `anon`/`authenticated` on that schema at all, same as these tables
+always had; reached from the portal/CLI via PostgREST's multi-schema
+support (`Accept-Profile`/`Content-Profile: admin` headers - confirmed
+live that PostgREST needs both, not just one, depending on read vs write).
+
+`public` is left as just the actual application data (whatever Import
+Excel creates, or an editor adds directly in Studio) - and it's the
+*only* schema Metabase's own database connection is configured to sync
+(`schema-filters-type: inclusion`, `schema-filters-patterns: public` -
+set by `bootstrap-metabase-admin.ts`, confirmed live that a table outside
+`public` genuinely doesn't appear in Metabase after this, and one inside
+it does). The same bootstrap step also removes Metabase's bundled sample
+database and the example dashboard/questions/collection that come with
+it, and disables adding new database connections entirely
+(`volumes/api/kong.yml`'s `metabase-add-database-block` route, 403s
+`POST /api/database` on the published Metabase port) - there's no native
+Metabase setting for this even for a superuser (confirmed live via
+`GET /api/setting`: the closest, `enable-advanced-permissions?`, is an
+Enterprise-only feature flag, `false` and unavailable here), so it's
+enforced at the network layer instead, the same way direct sign-in is
+blocked. None of this affects the portal itself, which never calls that
+endpoint, or anything reached over the internal Docker network directly.
+
 ## Admin CLI
 
 For provisioning accounts without going through the web registration/approval
@@ -410,7 +463,7 @@ shorter and gives a clearer error if the stack isn't running):
   confirmed the actual tables/rows landed correctly despite ~90 lines of
   expected "already exists" noise in the output.
 
-Every subcommand above writes an entry to `audit_log` too (`table_name =
+Every subcommand above writes an entry to `admin.audit_log` too (`table_name =
 "admin_cli"`, visible in the **Audit log** admin page like everything
 else) - `changed_by` is whoever ran the host [`nexa`](./nexa) wrapper
 (reads `$USER`, passed through via `docker compose exec -e`), or
@@ -427,9 +480,10 @@ CLI-provisioned account.
 
 ## Audit log
 
-Every row change to any table in the `public` schema (except the portal's
-own `portal_*` bookkeeping tables) is logged to `audit_log` - who changed
-what, when, and the old/new row data - regardless of whether the change
+Every row change to any table in the `public` schema is logged to
+`admin.audit_log` (see "Keeping Metabase to just the dashboards" above for
+why it's in `admin`, not `public`) - who changed what, when, and the
+old/new row data - regardless of whether the change
 came from Import Excel or directly from an editor poking around in the
 embedded Studio. The same table also carries discrete application events
 that aren't a row change at all: every login attempt (success and
@@ -453,7 +507,7 @@ range, and free-text search across the before/after row data, with
 pagination (`GET /api/admin/audit`, `portal/server/api/admin/audit.get.ts`).
 The free-text
 search runs through a `search_audit_log(term)` database function
-(`public.search_audit_log`, defined in both `volumes/db/audit.sql` and
+(`admin.search_audit_log`, defined in both `volumes/db/audit.sql` and
 `portal/server/utils/audit-store.ts`) called via PostgREST's `/rpc/`
 endpoint, rather than a plain URL filter - confirmed live that PostgREST's
 filter syntax can't cast a jsonb column to text for `ilike` (it errors with
@@ -461,14 +515,16 @@ filter syntax can't cast a jsonb column to text for `ilike` (it errors with
 `::text` cast on the column), while a SQL function doing the same cast
 works fine, and PostgREST supports layering the ordinary `table`/`operation`/
 date-range filters and pagination on top of an RPC that returns `setof
-audit_log`, same as querying the table directly.
+audit_log`, same as querying the table directly (both reached with an
+`Accept-Profile: admin` header, same as the rest of that schema).
 
 **Schema side** (`volumes/db/audit.sql`, self-healing copy in
 `portal/server/utils/audit-store.ts` for deployments that predate this
-feature - see below): a trigger on every table writes each INSERT/UPDATE/DELETE
-into `audit_log`, and a database event trigger auto-attaches that same
-trigger to any table created afterwards (Import Excel or Studio's own
-"New table"), so nothing has to remember to wire a new table up by hand.
+feature - see below): a trigger on every `public` table writes each
+INSERT/UPDATE/DELETE into `admin.audit_log`, and a database event trigger
+auto-attaches that same trigger to any table created afterwards (Import
+Excel or Studio's own "New table"), so nothing has to remember to wire a
+new table up by hand.
 
 **Attributing a change to a real person** is the interesting part, since
 every write - whether from the portal or from Studio - ultimately reaches
@@ -514,7 +570,7 @@ itself can't tell apart:
 >
 > Confirmed live: PostgREST's `request.headers` GUC shape and
 > `PGRST_DB_PRE_REQUEST` hook work exactly as described - a portal-driven
-> write (Import Excel) showed up in `audit_log` with the real signed-in
+> write (Import Excel) showed up in `admin.audit_log` with the real signed-in
 > user's email, not `'unknown'`. Still genuinely unverified: whether
 > Studio's Table Editor / SQL Editor actually call `/rest/v1/*` and `/pg/*`
 > directly from the browser (rather than proxying through Studio's own
@@ -573,7 +629,7 @@ portal/                   Nuxt 3 portal app (Dockerfile included)
   derived from it (see "Authentication"), so rotating invalidates any
   password not yet approved (approval will fail decryption; the user just
   registers again).
-* `audit_log` (see "Audit log") has no retention or pruning - it grows
+* `admin.audit_log` (see "Audit log") has no retention or pruning - it grows
   forever. Fine at self-hosted scale, but if you import/edit a lot of data
   over a long period, periodically archiving or trimming old rows is on
   you; nothing in this stack does it automatically.

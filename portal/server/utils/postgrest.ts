@@ -8,7 +8,17 @@ function restBaseUrl(): string {
   return useRuntimeConfig().restInternalUrl;
 }
 
-function restHeaders(extra: Record<string, string> = {}, actorEmail?: string): Record<string, string> {
+/** `schema` selects a non-public schema via PostgREST's multi-schema
+ * support (confirmed live: Accept-Profile for reads, Content-Profile for
+ * writes - a single header name doesn't work for both directions) - used
+ * for the "admin" schema (audit_log, portal_2fa*, portal_registrations),
+ * kept out of `public` so Metabase (configured to only sync `public`)
+ * never sees it. Omit for ordinary `public` tables - PostgREST defaults
+ * there without a profile header. */
+function restHeaders(
+  extra: Record<string, string> = {},
+  opts: { actorEmail?: string; schema?: string; write?: boolean } = {},
+): Record<string, string> {
   const config = useRuntimeConfig();
   const headers: Record<string, string> = {
     apikey: config.serviceRoleKey,
@@ -19,7 +29,8 @@ function restHeaders(extra: Record<string, string> = {}, actorEmail?: string): R
   // session GUC the audit trigger reads - attributes portal-driven writes
   // (e.g. Import Excel) to the real signed-in user, the same mechanism
   // Studio's proxied requests use.
-  if (actorEmail) headers["X-User-Email"] = actorEmail;
+  if (opts.actorEmail) headers["X-User-Email"] = opts.actorEmail;
+  if (opts.schema) headers[opts.write ? "Content-Profile" : "Accept-Profile"] = opts.schema;
   return headers;
 }
 
@@ -56,10 +67,13 @@ async function withSchemaCacheRetry<T>(fn: () => Promise<T>): Promise<T> {
 export async function restInsert(
   table: string,
   records: Record<string, unknown>[],
-  opts: { onConflict?: string; actorEmail?: string } = {},
+  opts: { onConflict?: string; actorEmail?: string; schema?: string } = {},
 ): Promise<void> {
   const url = new URL(`${restBaseUrl()}/${table}`);
-  const headers = restHeaders({ Prefer: "return=minimal" }, opts.actorEmail);
+  const headers = restHeaders(
+    { Prefer: "return=minimal" },
+    { actorEmail: opts.actorEmail, schema: opts.schema, write: true },
+  );
   if (opts.onConflict) {
     url.searchParams.set("on_conflict", opts.onConflict);
     headers.Prefer = "resolution=merge-duplicates,return=minimal";
@@ -77,12 +91,13 @@ export async function restInsert(
 export async function restInsertReturning<T = Record<string, unknown>>(
   table: string,
   records: Record<string, unknown>[],
+  opts: { schema?: string } = {},
 ): Promise<T[]> {
   try {
     return await withSchemaCacheRetry(() =>
       $fetch<T[]>(`${restBaseUrl()}/${table}`, {
         method: "POST",
-        headers: restHeaders({ Prefer: "return=representation" }),
+        headers: restHeaders({ Prefer: "return=representation" }, { schema: opts.schema, write: true }),
         body: records,
       }),
     );
@@ -123,10 +138,14 @@ export async function restSelectColumn(table: string, column: string): Promise<u
  * embeds a user-supplied value (e.g. the audit log's filters), the caller
  * must encodeURIComponent() that value itself before splicing it in - this
  * function does no escaping of its own. */
-export async function restSelect<T = Record<string, unknown>>(table: string, query: string): Promise<T[]> {
+export async function restSelect<T = Record<string, unknown>>(
+  table: string,
+  query: string,
+  opts: { schema?: string } = {},
+): Promise<T[]> {
   try {
     return await withSchemaCacheRetry(() =>
-      $fetch<T[]>(`${restBaseUrl()}/${table}?${query}`, { headers: restHeaders() }),
+      $fetch<T[]>(`${restBaseUrl()}/${table}?${query}`, { headers: restHeaders({}, { schema: opts.schema }) }),
     );
   } catch (err: any) {
     restError(err);
@@ -139,11 +158,12 @@ export async function restSelect<T = Record<string, unknown>>(table: string, que
 export async function restSelectWithCount<T = Record<string, unknown>>(
   table: string,
   query: string,
+  opts: { schema?: string } = {},
 ): Promise<{ rows: T[]; total: number }> {
   try {
     const res = await withSchemaCacheRetry(() =>
       $fetch.raw<T[]>(`${restBaseUrl()}/${table}?${query}`, {
-        headers: restHeaders({ Prefer: "count=exact" }),
+        headers: restHeaders({ Prefer: "count=exact" }, { schema: opts.schema }),
       }),
     );
     const rows = res._data ?? [];
@@ -155,12 +175,17 @@ export async function restSelectWithCount<T = Record<string, unknown>>(
   }
 }
 
-export async function restUpdate(table: string, query: string, patch: Record<string, unknown>): Promise<void> {
+export async function restUpdate(
+  table: string,
+  query: string,
+  patch: Record<string, unknown>,
+  opts: { schema?: string } = {},
+): Promise<void> {
   try {
     await withSchemaCacheRetry(() =>
       $fetch(`${restBaseUrl()}/${table}?${query}`, {
         method: "PATCH",
-        headers: restHeaders({ Prefer: "return=minimal" }),
+        headers: restHeaders({ Prefer: "return=minimal" }, { schema: opts.schema, write: true }),
         body: patch,
       }),
     );
@@ -169,12 +194,12 @@ export async function restUpdate(table: string, query: string, patch: Record<str
   }
 }
 
-export async function restDelete(table: string, query: string): Promise<void> {
+export async function restDelete(table: string, query: string, opts: { schema?: string } = {}): Promise<void> {
   try {
     await withSchemaCacheRetry(() =>
       $fetch(`${restBaseUrl()}/${table}?${query}`, {
         method: "DELETE",
-        headers: restHeaders({ Prefer: "return=minimal" }),
+        headers: restHeaders({ Prefer: "return=minimal" }, { schema: opts.schema, write: true }),
       }),
     );
   } catch (err: any) {

@@ -1,29 +1,51 @@
-/** Per-user TOTP secrets and recovery codes. Lives in `public` (so the
- * portal can reach it through the same PostgREST/service-role path as
- * everything else) but deliberately carries no `grant ... to
- * authenticated/anon` - Supabase's own default-privilege bootstrap
- * (roles.sql) already grants service_role full access to every table in
- * this schema regardless, so leaving anon/authenticated ungranted is
- * enough to keep this unreachable from anywhere but the portal's own
- * server-side, service-role-key calls. */
+/** Per-user TOTP secrets and recovery codes. Lives in `admin`, not
+ * `public` - kept out of Metabase's view (configured to only sync
+ * `public` - see README.md "Authentication") and out of the general
+ * PostgREST API surface anon/authenticated could otherwise stumble onto.
+ * No grants to authenticated/anon at all - only service_role (the
+ * portal's own key) can reach the `admin` schema in the first place (see
+ * volumes/db/audit.sql), so this is unreachable from anywhere but the
+ * portal's own server-side calls regardless. */
+
+const SCHEMA = "admin";
 
 let tablesEnsured = false;
 
 export async function ensureTwoFactorTables(): Promise<void> {
   if (tablesEnsured) return;
   await pgMetaQuery(`
-    create table if not exists "public"."portal_2fa" (
+    create schema if not exists "admin";
+    grant usage on schema "admin" to service_role;
+
+    -- Migrates real data from a pre-"admin"-schema deployment - see
+    -- audit-store.ts for the full explanation of why this can't just be a
+    -- plain "create table if not exists".
+    do $$
+    begin
+      if exists (select 1 from pg_tables where schemaname = 'public' and tablename = 'portal_2fa')
+         and not exists (select 1 from pg_tables where schemaname = 'admin' and tablename = 'portal_2fa') then
+        alter table public.portal_2fa set schema admin;
+      end if;
+      if exists (select 1 from pg_tables where schemaname = 'public' and tablename = 'portal_2fa_recovery_codes')
+         and not exists (select 1 from pg_tables where schemaname = 'admin' and tablename = 'portal_2fa_recovery_codes') then
+        alter table public.portal_2fa_recovery_codes set schema admin;
+      end if;
+    end $$;
+
+    create table if not exists "admin"."portal_2fa" (
       metabase_user_id bigint primary key,
       email text not null,
       totp_secret text not null,
       enrolled_at timestamptz not null default now()
     );
-    create table if not exists "public"."portal_2fa_recovery_codes" (
+    create table if not exists "admin"."portal_2fa_recovery_codes" (
       id bigint generated always as identity primary key,
-      metabase_user_id bigint not null references "public"."portal_2fa"(metabase_user_id) on delete cascade,
+      metabase_user_id bigint not null references "admin"."portal_2fa"(metabase_user_id) on delete cascade,
       code_hash text not null,
       used_at timestamptz
     );
+    grant all on all tables in schema "admin" to service_role;
+    alter default privileges in schema "admin" grant all on tables to service_role;
     notify pgrst, 'reload schema';
   `);
   tablesEnsured = true;
@@ -34,6 +56,7 @@ export async function getTotpSecret(userId: number): Promise<string | null> {
   const rows = await restSelect<{ totp_secret: string }>(
     "portal_2fa",
     `select=totp_secret&metabase_user_id=eq.${userId}&limit=1`,
+    { schema: SCHEMA },
   );
   return rows[0]?.totp_secret ?? null;
 }
@@ -57,13 +80,16 @@ async function insertEnrollment(
   recoveryCodeHashes: string[],
 ): Promise<void> {
   await ensureTwoFactorTables();
-  await restInsert("portal_2fa", [{ metabase_user_id: userId, email, totp_secret: secret }], {
-    onConflict: "metabase_user_id",
-  });
-  await restDelete("portal_2fa_recovery_codes", `metabase_user_id=eq.${userId}`);
+  await restInsert(
+    "portal_2fa",
+    [{ metabase_user_id: userId, email, totp_secret: secret }],
+    { onConflict: "metabase_user_id", schema: SCHEMA },
+  );
+  await restDelete("portal_2fa_recovery_codes", `metabase_user_id=eq.${userId}`, { schema: SCHEMA });
   await restInsert(
     "portal_2fa_recovery_codes",
     recoveryCodeHashes.map((code_hash) => ({ metabase_user_id: userId, code_hash })),
+    { schema: SCHEMA },
   );
 }
 
@@ -93,9 +119,15 @@ export async function redeemRecoveryCode(userId: number, code: string): Promise<
   const rows = await restSelect<{ id: number }>(
     "portal_2fa_recovery_codes",
     `select=id&metabase_user_id=eq.${userId}&code_hash=eq.${hash}&used_at=is.null&limit=1`,
+    { schema: SCHEMA },
   );
   const match = rows[0];
   if (!match) return false;
-  await restUpdate("portal_2fa_recovery_codes", `id=eq.${match.id}`, { used_at: new Date().toISOString() });
+  await restUpdate(
+    "portal_2fa_recovery_codes",
+    `id=eq.${match.id}`,
+    { used_at: new Date().toISOString() },
+    { schema: SCHEMA },
+  );
   return true;
 }

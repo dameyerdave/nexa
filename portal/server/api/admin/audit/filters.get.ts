@@ -4,8 +4,8 @@ export default defineEventHandler(async (event) => {
   await requireAdmin(event);
   const rows = (await pgMetaQuery(
     `select
-       array(select distinct table_name from public.audit_log order by table_name) as tables,
-       array(select distinct changed_by from public.audit_log order by changed_by) as actors`,
+       array(select distinct table_name from admin.audit_log order by table_name) as tables,
+       array(select distinct changed_by from admin.audit_log order by changed_by) as actors`,
   )) as Array<{ tables: string[]; actors: string[] }>;
   return rows[0] ?? { tables: [], actors: [] };
 });
