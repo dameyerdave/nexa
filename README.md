@@ -311,14 +311,18 @@ shorter and gives a clearer error if the stack isn't running):
 * **`user password <email>`** - sets/resets a Metabase password the same
   way (`PUT /api/user/:id/password` as the portal's own admin session -
   see "Authentication").
-* **`user 2fa get <email>`** - generates a fresh TOTP secret and recovery
-  codes, writes them straight into `portal_2fa`/`portal_2fa_recovery_codes`
-  (the same tables the web enrollment flow uses), and prints an ASCII QR
-  code to scan right there in the terminal (`qrcode-terminal`) plus the
-  manual entry code and recovery codes. Refuses to overwrite an existing
-  enrollment unless `--force` is given. Because it writes to the same
-  tables, a user provisioned this way skips straight to entering a 6-digit
-  code on their first real portal login - no separate enrollment step.
+* **`user 2fa get <email>`** - shows a user's current 2FA info as an ASCII
+  QR code right there in the terminal (`qrcode-terminal`) plus the manual
+  entry code. If they haven't enrolled yet, it generates a fresh TOTP
+  secret and recovery codes first, writing them straight into
+  `portal_2fa`/`portal_2fa_recovery_codes` (the same tables the web
+  enrollment flow uses) - a user provisioned this way skips straight to
+  entering a 6-digit code on their first real portal login, no separate
+  enrollment step. If they're already enrolled, it just reads back the
+  existing secret (harmless to re-show - scanning it into another
+  authenticator app doesn't invalidate anything), but *not* recovery
+  codes, since only their SHA-256 hash is ever stored - `2fa reset` first
+  if a user needs a new set.
 * **`user 2fa reset <email>`** - clears a user's enrollment (`portal_2fa`
   row and its cascaded recovery codes), so they're prompted to enroll
   again next time they sign in, or so an admin can immediately run

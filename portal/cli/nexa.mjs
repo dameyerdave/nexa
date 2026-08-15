@@ -41,11 +41,12 @@ function usage() {
   nexa user 2fa reset <email>
       Clears a user's 2FA enrollment - they're prompted to enroll again next time they sign in.
 
-  nexa user 2fa get <email> [--force]
-      Generates 2FA enrollment info (QR code, manual entry code, recovery codes) for a user who
-      hasn't enrolled yet - so an admin can hand over a fully provisioned account without the user
-      ever visiting the portal's own enrollment screen. Refuses to overwrite an existing enrollment
-      unless --force is given (this invalidates the user's current authenticator entry).`);
+  nexa user 2fa get <email>
+      Shows a user's current 2FA info (QR code, manual entry code) - generating it first if they
+      haven't enrolled yet (also prints recovery codes in that case), or reading back their existing
+      secret if they have. Re-showing an existing secret is harmless (it doesn't invalidate anything),
+      but recovery codes are only ever stored hashed, so existing ones can't be shown again - use
+      "2fa reset" first if a user needs a fresh set.`);
 }
 
 function parseFlags(args) {
@@ -204,49 +205,57 @@ async function cmdUser2faReset(args) {
 }
 
 async function cmdUser2faGet(args) {
-  const { flags, positional } = parseFlags(args);
+  const { positional } = parseFlags(args);
   const email = positional[0];
-  if (!email) die("Usage: nexa user 2fa get <email> [--force]");
+  if (!email) die("Usage: nexa user 2fa get <email>");
 
   const session = await metabaseAdminSession();
   const user = await findUserByEmail(session, email);
   if (!user) die(`No Metabase user found with email ${email}`);
 
-  const existing = await restFetch(`/portal_2fa?select=metabase_user_id&metabase_user_id=eq.${user.id}&limit=1`);
-  if (existing.length && !flags.force) {
-    die(
-      `${email} already has 2FA enrolled. Re-run with --force to generate new 2FA info ` +
-        `(invalidates their current authenticator entry), or use: nexa user 2fa reset ${email}`,
-    );
-  }
+  const existing = await restFetch(`/portal_2fa?select=totp_secret&metabase_user_id=eq.${user.id}&limit=1`);
+  const isNew = existing.length === 0;
 
-  const secret = new OTPAuth.Secret({ size: 20 }).base32;
+  // The TOTP secret is stored in plaintext (it has to be, to check codes
+  // against it later), so an existing enrollment's secret/QR can just be
+  // read back and re-shown - harmless, since scanning the same secret
+  // into another authenticator app doesn't invalidate anything. Recovery
+  // codes are the opposite: only ever stored as a SHA-256 hash, so an
+  // existing enrollment's codes genuinely can't be retrieved again.
+  const secret = isNew ? new OTPAuth.Secret({ size: 20 }).base32 : existing[0].totp_secret;
   const totp = new OTPAuth.TOTP({ issuer: "Nexdata", label: email, secret: OTPAuth.Secret.fromBase32(secret) });
   const uri = totp.toString();
 
-  const recoveryCodes = generateRecoveryCodes();
+  let recoveryCodes = null;
+  if (isNew) {
+    recoveryCodes = generateRecoveryCodes();
+    await restFetch(`/portal_2fa?on_conflict=metabase_user_id`, {
+      method: "POST",
+      headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify([{ metabase_user_id: user.id, email, totp_secret: secret }]),
+    });
+    await restFetch(`/portal_2fa_recovery_codes?metabase_user_id=eq.${user.id}`, {
+      method: "DELETE",
+      headers: { Prefer: "return=minimal" },
+    });
+    await restFetch("/portal_2fa_recovery_codes", {
+      method: "POST",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify(recoveryCodes.map((code) => ({ metabase_user_id: user.id, code_hash: hashRecoveryCode(code) }))),
+    });
+  }
 
-  await restFetch(`/portal_2fa?on_conflict=metabase_user_id`, {
-    method: "POST",
-    headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-    body: JSON.stringify([{ metabase_user_id: user.id, email, totp_secret: secret }]),
-  });
-  await restFetch(`/portal_2fa_recovery_codes?metabase_user_id=eq.${user.id}`, {
-    method: "DELETE",
-    headers: { Prefer: "return=minimal" },
-  });
-  await restFetch("/portal_2fa_recovery_codes", {
-    method: "POST",
-    headers: { Prefer: "return=minimal" },
-    body: JSON.stringify(recoveryCodes.map((code) => ({ metabase_user_id: user.id, code_hash: hashRecoveryCode(code) }))),
-  });
-
-  console.log(`2FA setup for ${email}\n`);
+  console.log(`2FA ${isNew ? "setup" : "info"} for ${email}${isNew ? "" : " (existing enrollment)"}\n`);
   console.log(`Manual entry code: ${secret}\n`);
   console.log("Scan this with an authenticator app:\n");
   qrcodeTerminal.generate(uri, { small: true }, (qr) => console.log(qr));
-  console.log("Recovery codes (save these - shown only once):");
-  for (const code of recoveryCodes) console.log(`  ${code}`);
+  if (recoveryCodes) {
+    console.log("Recovery codes (save these - shown only once):");
+    for (const code of recoveryCodes) console.log(`  ${code}`);
+  } else {
+    console.log("Recovery codes aren't retrievable - they were only ever shown once, at enrollment.");
+    console.log(`To issue new ones: nexa user 2fa reset ${email} && nexa user 2fa get ${email}`);
+  }
 }
 
 const [resource, action, ...rest] = process.argv.slice(2);
