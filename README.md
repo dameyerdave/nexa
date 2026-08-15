@@ -282,6 +282,53 @@ URL in an `<iframe>` (`portal/pages/index.vue`) - so from the user's point
 of view, signing into the portal is the only login step. Viewers never see
 this option.
 
+## Admin CLI
+
+For provisioning accounts without going through the web registration/approval
+flow - e.g. scripting a bunch of accounts, or handing someone a fully working
+login (password + 2FA already set up) without them ever visiting the portal -
+there's a small `nexa` CLI baked into the portal image
+(`portal/cli/nexa.mjs`). Run it via `docker compose exec`:
+
+```sh
+docker compose exec portal nexa user add jane@example.com --first-name Jane --last-name Doe --group Editors
+docker compose exec portal nexa user password jane@example.com
+docker compose exec portal nexa user 2fa get jane@example.com
+docker compose exec portal nexa user 2fa reset jane@example.com
+```
+
+* **`user add <email>`** - creates the Metabase account directly (optional
+  `--first-name`/`--last-name`, repeatable `--group NAME` to assign
+  group(s) at creation, `--password` to set one explicitly). Prints a
+  generated password if `--password` isn't given. Unlike the portal's own
+  registration-approval UI, this can assign *any* group, including
+  Administrators - it's a lower-level, more trusted tool than the web
+  dashboard, gated only by shell access to the portal container.
+* **`user password <email>`** - sets/resets a Metabase password the same
+  way (`PUT /api/user/:id/password` as the portal's own admin session -
+  see "Authentication").
+* **`user 2fa get <email>`** - generates a fresh TOTP secret and recovery
+  codes, writes them straight into `portal_2fa`/`portal_2fa_recovery_codes`
+  (the same tables the web enrollment flow uses), and prints an ASCII QR
+  code to scan right there in the terminal (`qrcode-terminal`) plus the
+  manual entry code and recovery codes. Refuses to overwrite an existing
+  enrollment unless `--force` is given. Because it writes to the same
+  tables, a user provisioned this way skips straight to entering a 6-digit
+  code on their first real portal login - no separate enrollment step.
+* **`user 2fa reset <email>`** - clears a user's enrollment (`portal_2fa`
+  row and its cascaded recovery codes), so they're prompted to enroll
+  again next time they sign in, or so an admin can immediately run
+  `2fa get` again.
+
+Standalone by design - `cli/nexa.mjs` doesn't import the Nitro-coupled
+`server/utils/*` files (they rely on `useRuntimeConfig()`/`createError()`,
+which only exist inside a request), it re-implements the same Metabase
+admin API calls and table writes directly, reading the same `NUXT_METABASE_*`/
+`NUXT_REST_INTERNAL_URL`/`NUXT_SERVICE_ROLE_KEY` env vars already set on the
+portal container. All four subcommands verified end-to-end against a live
+stack, including a full login through 2FA verification with a
+CLI-provisioned account.
+
 ## Audit log
 
 Every row change to any table in the `public` schema (except the portal's
