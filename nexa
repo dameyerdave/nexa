@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Host-side wrapper for the nexa admin CLI (portal/cli/nexa.mjs), which
+# actually runs inside the portal container. Lets you run
+# `./nexa user add jane@example.com ...` from the repo instead of
+# remembering `docker compose exec portal nexa user add jane@example.com ...`.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+if ! docker compose ps --services --filter status=running 2>/dev/null | grep -qx portal; then
+  echo "Error: the portal container isn't running - start the stack first: docker compose up -d" >&2
+  exit 1
+fi
+
+# -T (no pseudo-TTY) when stdin/stdout aren't a real terminal - e.g. piped
+# output or running from a non-interactive script - otherwise docker
+# compose exec's default TTY allocation can hang or garble output there.
+if [ -t 0 ] && [ -t 1 ]; then
+  exec docker compose exec portal nexa "$@"
+else
+  exec docker compose exec -T portal nexa "$@"
+fi

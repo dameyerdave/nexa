@@ -288,13 +288,17 @@ For provisioning accounts without going through the web registration/approval
 flow - e.g. scripting a bunch of accounts, or handing someone a fully working
 login (password + 2FA already set up) without them ever visiting the portal -
 there's a small `nexa` CLI baked into the portal image
-(`portal/cli/nexa.mjs`). Run it via `docker compose exec`:
+(`portal/cli/nexa.mjs`). Run it from the host via the [`nexa`](./nexa) wrapper
+script at the repo root, which finds the repo, checks the portal container
+is up, and runs the real thing inside it
+(`docker compose exec portal nexa ...` - works too, the wrapper is just
+shorter and gives a clearer error if the stack isn't running):
 
 ```sh
-docker compose exec portal nexa user add jane@example.com --first-name Jane --last-name Doe --group Editors
-docker compose exec portal nexa user password jane@example.com
-docker compose exec portal nexa user 2fa get jane@example.com
-docker compose exec portal nexa user 2fa reset jane@example.com
+./nexa user add jane@example.com --first-name Jane --last-name Doe --group Editors
+./nexa user password jane@example.com
+./nexa user 2fa get jane@example.com
+./nexa user 2fa reset jane@example.com
 ```
 
 * **`user add <email>`** - creates the Metabase account directly (optional
