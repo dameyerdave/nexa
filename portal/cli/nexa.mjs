@@ -14,12 +14,23 @@
 import * as OTPAuth from "otpauth";
 import qrcodeTerminal from "qrcode-terminal";
 import { randomBytes, createHash } from "node:crypto";
+import { spawn } from "node:child_process";
+import { createWriteStream, existsSync } from "node:fs";
+import { mkdir } from "node:fs/promises";
+import path from "node:path";
+import readline from "node:readline";
+
+const BACKUP_DIR = "/backups";
 
 const METABASE_URL = process.env.NUXT_METABASE_INTERNAL_URL;
 const REST_URL = process.env.NUXT_REST_INTERNAL_URL;
 const SERVICE_ROLE_KEY = process.env.NUXT_SERVICE_ROLE_KEY;
 const ADMIN_EMAIL = process.env.NUXT_METABASE_ADMIN_EMAIL;
 const ADMIN_PASSWORD = process.env.NUXT_METABASE_ADMIN_PASSWORD;
+// Set by the host-side ./nexa wrapper (the shell user who ran the
+// command) - falls back to this generic marker for anyone calling
+// `docker compose exec portal nexa ...` directly instead.
+const OPERATOR = process.env.NEXA_OPERATOR || "nexa-cli";
 
 function die(message) {
   console.error(`Error: ${message}`);
@@ -46,7 +57,17 @@ function usage() {
       haven't enrolled yet (also prints recovery codes in that case), or reading back their existing
       secret if they have. Re-showing an existing secret is harmless (it doesn't invalidate anything),
       but recovery codes are only ever stored hashed, so existing ones can't be shown again - use
-      "2fa reset" first if a user needs a fresh set.`);
+      "2fa reset" first if a user needs a fresh set.
+
+  nexa db backup [filename]
+      Dumps the entire Postgres cluster (every database, every role - not just one database) via
+      pg_dumpall to ${BACKUP_DIR}/<filename>, or ${BACKUP_DIR}/nexa-<timestamp>.sql if omitted.
+      A relative filename is resolved under ${BACKUP_DIR}; an absolute one is used as-is.
+
+  nexa db restore <filename> [--yes]
+      Restores a backup made with "db backup", OVERWRITING THE ENTIRE CLUSTER - every database,
+      every table, every role, replaced with the backup's contents. Cannot be undone. Prompts for
+      confirmation on a real terminal; pass --yes to skip that in a non-interactive context.`);
 }
 
 function parseFlags(args) {
@@ -126,6 +147,26 @@ async function restFetch(path, opts = {}) {
   return res.headers.get("content-length") === "0" || res.status === 204 ? null : res.json();
 }
 
+/** Records a CLI-driven admin action in the same audit_log table the
+ * portal's own row-change triggers and auth events (see
+ * server/api/auth/*.ts) write to - best-effort, using a raw fetch rather
+ * than restFetch() since that calls die() (process.exit) on failure,
+ * which a try/catch here can't stop - a logging hiccup must never take
+ * down the actual command that already succeeded. changedBy defaults to
+ * whoever ran the host ./nexa wrapper (see OPERATOR above). */
+async function auditLog(operation, detail, changedBy = OPERATOR) {
+  try {
+    const res = await fetch(`${REST_URL}/audit_log`, {
+      method: "POST",
+      headers: restHeaders({ Prefer: "return=minimal" }),
+      body: JSON.stringify([{ table_name: "admin_cli", operation, changed_by: changedBy, new_data: detail ?? null }]),
+    });
+    if (!res.ok) console.error(`Warning: failed to write audit log entry (${res.status})`);
+  } catch (err) {
+    console.error(`Warning: failed to write audit log entry: ${err.message}`);
+  }
+}
+
 async function cmdUserAdd(args) {
   const { flags, positional } = parseFlags(args);
   const email = positional[0];
@@ -164,6 +205,8 @@ async function cmdUserAdd(args) {
   console.log(`Created ${email} (id ${user.id})${groupNames.length ? `, groups: ${groupNames.join(", ")}` : ""}`);
   if (flags.password === undefined) console.log(`Generated password: ${password}`);
   console.log(`2FA isn't set up yet - run: nexa user 2fa get ${email}`);
+
+  await auditLog("USER_ADD", { email, groups: groupNames });
 }
 
 async function cmdUserPassword(args) {
@@ -183,6 +226,8 @@ async function cmdUserPassword(args) {
 
   console.log(`Password updated for ${email}`);
   if (flags.password === undefined) console.log(`Generated password: ${password}`);
+
+  await auditLog("USER_PASSWORD_RESET", { email });
 }
 
 async function cmdUser2faReset(args) {
@@ -202,6 +247,8 @@ async function cmdUser2faReset(args) {
 
   console.log(`2FA reset for ${email} - they'll be prompted to enroll again next time they sign in,`);
   console.log(`or run: nexa user 2fa get ${email}`);
+
+  await auditLog("USER_2FA_RESET", { email });
 }
 
 async function cmdUser2faGet(args) {
@@ -256,6 +303,117 @@ async function cmdUser2faGet(args) {
     console.log("Recovery codes aren't retrievable - they were only ever shown once, at enrollment.");
     console.log(`To issue new ones: nexa user 2fa reset ${email} && nexa user 2fa get ${email}`);
   }
+
+  await auditLog(isNew ? "USER_2FA_ENROLL" : "USER_2FA_VIEW", { email });
+}
+
+function resolveBackupPath(filename) {
+  if (!filename) {
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    filename = `nexa-${stamp}.sql`;
+  }
+  return path.isAbsolute(filename) ? filename : path.join(BACKUP_DIR, filename);
+}
+
+/** Prompts on a real terminal; on a non-interactive one (e.g. piped, or
+ * `docker compose exec -T`) there's no way to ask, so the caller must
+ * pass --yes instead - never silently assumes consent. */
+async function confirmDestructive(message) {
+  if (!process.stdin.isTTY) return false;
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const answer = await new Promise((resolve) => rl.question(`${message} Type "yes" to continue: `, resolve));
+  rl.close();
+  return answer.trim().toLowerCase() === "yes";
+}
+
+function run(cmd, args, { stdout } = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, { stdio: ["ignore", stdout ? "pipe" : "inherit", "inherit"] });
+    let streamFinished = Promise.resolve();
+    if (stdout) {
+      child.stdout.pipe(stdout);
+      // Waited on below alongside process exit, so the file is guaranteed
+      // fully flushed to disk before this resolves - piping alone doesn't
+      // guarantee the write stream has finished by the time the child
+      // process exits.
+      streamFinished = new Promise((res, rej) => {
+        stdout.on("finish", res);
+        stdout.on("error", rej);
+      });
+    }
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      if (code !== 0) return reject(new Error(`${cmd} exited with code ${code}`));
+      streamFinished.then(resolve, reject);
+    });
+  });
+}
+
+async function cmdDbBackup(args) {
+  const { positional } = parseFlags(args);
+  await mkdir(BACKUP_DIR, { recursive: true });
+  const filePath = resolveBackupPath(positional[0]);
+
+  console.log(`Backing up the whole Postgres cluster (all databases + roles) to ${filePath} ...`);
+  const out = createWriteStream(filePath);
+  try {
+    // --clean --if-exists: the restore side (below) drops each object
+    // before recreating it, so restoring into an already-populated
+    // cluster doesn't fail on "already exists".
+    await run("pg_dumpall", ["--clean", "--if-exists"], { stdout: out });
+  } catch (err) {
+    die(`Backup failed: ${err.message}`);
+  }
+  console.log(`Backup complete: ${filePath}`);
+
+  await auditLog("DB_BACKUP", { file: filePath });
+}
+
+async function cmdDbRestore(args) {
+  const { flags, positional } = parseFlags(args);
+  const filename = positional[0];
+  if (!filename) die("Usage: nexa db restore <filename> [--yes]");
+  const filePath = resolveBackupPath(filename);
+  if (!existsSync(filePath)) die(`No such backup file: ${filePath}`);
+
+  console.log(`This will OVERWRITE THE ENTIRE Postgres cluster - every database, every table, every`);
+  console.log(`role - with the contents of ${filePath}. This cannot be undone.`);
+  const confirmed = flags.yes === true || (await confirmDestructive("Continue?"));
+  if (!confirmed) die('Aborted - re-run with --yes to skip confirmation in a non-interactive context.');
+
+  // Logged before running, not just after - a full-cluster restore is the
+  // single most destructive thing this CLI can do, so there should be a
+  // record that it was *attempted* even if it fails partway through.
+  await auditLog("DB_RESTORE_STARTED", { file: filePath });
+
+  console.log(`Restoring from ${filePath} ...`);
+  console.log(
+    "Expect a lot of red ERROR lines below for roles/schemas/tables that already exist, or are\n" +
+      '"reserved" on Supabase\'s hardened image - confirmed live these are normal noise when restoring\n' +
+      "onto an already-initialized cluster (this project's own db init already created them fresh);\n" +
+      "the actual data still restores underneath them. Scroll for anything that doesn't look like that.",
+  );
+  try {
+    // Deliberately no -v ON_ERROR_STOP=1: confirmed live that stopping on
+    // the first error aborts almost immediately, since a handful of
+    // pg_dumpall's statements are *expected* to fail on an
+    // already-initialized cluster (dropping the role/database the
+    // restoring session is itself connected as, re-creating roles
+    // Supabase's image marks "reserved" and already created via its own
+    // init, etc.) - psql's default behavior (report and keep going) is
+    // the correct one here, same as PostgreSQL's own docs recommend for
+    // restoring pg_dumpall output onto a non-empty cluster.
+    //
+    // Connects to template1, not postgres/supabase_admin's default db -
+    // pg_dumpall's output can't drop the database the restoring session
+    // is itself connected to, and template1 always exists untouched.
+    await run("psql", ["-d", "template1", "-f", filePath]);
+  } catch (err) {
+    die(`Restore failed: ${err.message}`);
+  }
+  console.log("Restore complete.");
+
+  await auditLog("DB_RESTORE_COMPLETE", { file: filePath });
 }
 
 const [resource, action, ...rest] = process.argv.slice(2);
@@ -267,4 +425,6 @@ else if (resource === "user" && action === "2fa") {
   if (subaction === "reset") await cmdUser2faReset(rest2);
   else if (subaction === "get") await cmdUser2faGet(rest2);
   else usage();
-} else usage();
+} else if (resource === "db" && action === "backup") await cmdDbBackup(rest);
+else if (resource === "db" && action === "restore") await cmdDbRestore(rest);
+else usage();

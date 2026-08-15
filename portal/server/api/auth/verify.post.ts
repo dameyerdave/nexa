@@ -11,12 +11,15 @@ export default defineEventHandler(async (event) => {
   }
 
   let recoveryCodes: string[] | undefined;
+  const ip = getRequestIP(event, { xForwardedFor: true });
 
   if (body?.recoveryCode) {
     const ok = await redeemRecoveryCode(pending.userId, body.recoveryCode);
     if (!ok) {
+      await auditEvent("LOGIN_2FA_FAILURE", pending.email, { method: "recovery_code", ip });
       throw createError({ statusCode: 401, statusMessage: "Invalid or already-used recovery code" });
     }
+    await auditEvent("LOGIN_RECOVERY_CODE_USED", pending.email, { ip });
   } else {
     const code = body?.code?.trim();
     if (!code) {
@@ -27,6 +30,7 @@ export default defineEventHandler(async (event) => {
       // First-time enrollment - the QR code isn't committed to storage
       // until proven scannable, so a bad scan can't lock the user out.
       if (!verifyTotpCode(pending.pendingTotpSecret, code)) {
+        await auditEvent("LOGIN_2FA_ENROLL_FAILURE", pending.email, { ip });
         throw createError({
           statusCode: 401,
           statusMessage: "Incorrect code - check your authenticator app and try again",
@@ -34,9 +38,11 @@ export default defineEventHandler(async (event) => {
       }
       recoveryCodes = generateRecoveryCodes();
       await commitTotpEnrollment(pending.userId, pending.email, pending.pendingTotpSecret, recoveryCodes);
+      await auditEvent("LOGIN_2FA_ENROLLED", pending.email, { ip });
     } else {
       const secret = await getTotpSecret(pending.userId);
       if (!secret || !verifyTotpCode(secret, code)) {
+        await auditEvent("LOGIN_2FA_FAILURE", pending.email, { method: "totp", ip });
         throw createError({ statusCode: 401, statusMessage: "Incorrect code" });
       }
     }
@@ -46,6 +52,7 @@ export default defineEventHandler(async (event) => {
     appendResponseHeader(event, "set-cookie", cookie);
   }
   deletePendingLogin(loginId);
+  await auditEvent("LOGIN_SUCCESS", pending.email, { ip });
 
   return { status: "ok" as const, recoveryCodes };
 });

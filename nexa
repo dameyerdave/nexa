@@ -13,11 +13,15 @@ if ! docker compose ps --services --filter status=running 2>/dev/null | grep -qx
   exit 1
 fi
 
+# Who's actually running this, for the audit log (portal/cli/nexa.mjs) -
+# docker compose exec doesn't forward host env vars on its own.
+OPERATOR="${USER:-${USERNAME:-unknown}}"
+
 # -T (no pseudo-TTY) when stdin/stdout aren't a real terminal - e.g. piped
 # output or running from a non-interactive script - otherwise docker
 # compose exec's default TTY allocation can hang or garble output there.
 if [ -t 0 ] && [ -t 1 ]; then
-  exec docker compose exec portal nexa "$@"
+  exec docker compose exec -e NEXA_OPERATOR="$OPERATOR" portal nexa "$@"
 else
-  exec docker compose exec -T portal nexa "$@"
+  exec docker compose exec -T -e NEXA_OPERATOR="$OPERATOR" portal nexa "$@"
 fi

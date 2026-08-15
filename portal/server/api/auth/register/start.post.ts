@@ -33,6 +33,7 @@ export default defineEventHandler(async (event) => {
   const passwordEnc = encryptSecret(password);
   const totpSecret = generateTotpSecret();
   const registration = await createRegistration({ email, firstName, lastName, passwordEnc, totpSecret });
+  await auditEvent("REGISTRATION_SUBMITTED", email, { ip: getRequestIP(event, { xForwardedFor: true }) });
 
   const qr = await totpQrCodeDataUrl(totpEnrollmentUri(email, totpSecret));
   return { registrationId: registration.id, qr, secret: totpSecret };

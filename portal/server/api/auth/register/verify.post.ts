@@ -22,6 +22,7 @@ export default defineEventHandler(async (event) => {
 
   const recoveryCodes = generateRecoveryCodes();
   await commitRegistrationTotp(registrationId, recoveryCodes.map(hashRecoveryCode));
+  await auditEvent("REGISTRATION_2FA_CONFIRMED", registration.email);
 
   return { status: "ok" as const, recoveryCodes };
 });

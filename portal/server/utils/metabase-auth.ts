@@ -81,21 +81,45 @@ export async function metabaseLogout(sessionToken: string): Promise<void> {
   }).catch(() => {});
 }
 
+/** Cached and de-duplicated - confirmed live that leaving this uncached
+ * (a fresh admin login on every call) causes real failures under load:
+ * Studio's SPA fires a burst of parallel requests on mount, each
+ * independently needing an editor check (see editor-session-cache.ts),
+ * and enough concurrent admin logins racing each other made some of them
+ * fail outright. Metabase sessions are long-lived by default (weeks), so
+ * a much shorter local TTL here just bounds how stale a revoked admin
+ * session could be, not real cache-correctness risk. */
+let cachedAdminSession: { token: string; expiresAt: number } | null = null;
+let pendingAdminSession: Promise<string> | null = null;
+const ADMIN_SESSION_TTL_MS = 10 * 60 * 1000;
+
 async function metabaseAdminSession(): Promise<string> {
+  if (cachedAdminSession && cachedAdminSession.expiresAt > Date.now()) return cachedAdminSession.token;
+  if (pendingAdminSession) return pendingAdminSession;
+
   const config = useRuntimeConfig();
-  const res = await fetch(`${config.metabaseInternalUrl}/api/session`, {
-    method: "POST",
-    headers: metabaseHeaders(),
-    body: JSON.stringify({ username: config.metabaseAdminEmail, password: config.metabaseAdminPassword }),
-  });
-  if (!res.ok) {
-    throw createError({
-      statusCode: 502,
-      statusMessage: "Could not authenticate the portal's own Metabase admin account",
+  pendingAdminSession = (async () => {
+    const res = await fetch(`${config.metabaseInternalUrl}/api/session`, {
+      method: "POST",
+      headers: metabaseHeaders(),
+      body: JSON.stringify({ username: config.metabaseAdminEmail, password: config.metabaseAdminPassword }),
     });
+    if (!res.ok) {
+      throw createError({
+        statusCode: 502,
+        statusMessage: "Could not authenticate the portal's own Metabase admin account",
+      });
+    }
+    const body = (await res.json()) as { id: string };
+    cachedAdminSession = { token: body.id, expiresAt: Date.now() + ADMIN_SESSION_TTL_MS };
+    return body.id;
+  })();
+
+  try {
+    return await pendingAdminSession;
+  } finally {
+    pendingAdminSession = null;
   }
-  const body = (await res.json()) as { id: string };
-  return body.id;
 }
 
 /** True if this Metabase user belongs to the configured editor group -

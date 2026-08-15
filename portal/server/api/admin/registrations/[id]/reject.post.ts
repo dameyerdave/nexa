@@ -8,5 +8,6 @@ export default defineEventHandler(async (event) => {
   }
 
   await decideRegistration(id, "rejected", admin.email);
+  await auditEvent("REGISTRATION_REJECTED", admin.email, { email: registration.email });
   return { status: "rejected" as const };
 });

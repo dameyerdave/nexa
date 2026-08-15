@@ -33,6 +33,7 @@ export default defineEventHandler(async (event) => {
   );
 
   await decideRegistration(id, "approved", admin.email);
+  await auditEvent("REGISTRATION_APPROVED", admin.email, { email: registration.email, groupIds });
 
   return { status: "approved" as const, userId };
 });

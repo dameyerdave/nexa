@@ -345,6 +345,8 @@ shorter and gives a clearer error if the stack isn't running):
 ./nexa user password jane@example.com
 ./nexa user 2fa get jane@example.com
 ./nexa user 2fa reset jane@example.com
+./nexa db backup
+./nexa db restore nexa-2026-08-15T14-05-00-000Z.sql --yes
 ```
 
 * **`user add <email>`** - creates the Metabase account directly (optional
@@ -373,6 +375,38 @@ shorter and gives a clearer error if the stack isn't running):
   row and its cascaded recovery codes), so they're prompted to enroll
   again next time they sign in, or so an admin can immediately run
   `2fa get` again.
+* **`db backup [filename]`** - dumps the *entire Postgres cluster*
+  (`pg_dumpall --clean --if-exists`, all databases - `postgres`,
+  `metabase`, `_supabase` - and roles, not just one) to
+  `./backups/<filename>` on the host (a bind-mounted volume, so it
+  survives the container being recreated), or a timestamped name if you
+  don't give one.
+* **`db restore <filename> [--yes]`** - restores a backup made with
+  `db backup`, overwriting the entire cluster with its contents. Prompts
+  for confirmation on a real terminal (`--yes` skips that non-interactively).
+  Connects as `supabase_admin`, not `postgres` - confirmed live that
+  `postgres` isn't actually a superuser on Supabase's hardened image
+  (`supabase_admin` is, with the same password), and restoring as
+  `postgres` cascades into failures throughout (objects owned by
+  `supabase_admin` can't be recreated, role-membership grants get
+  rejected as touching "reserved roles", etc.). Also runs *without*
+  `-v ON_ERROR_STOP=1` deliberately - confirmed live that a handful of
+  pg_dumpall's statements are *expected* to fail when restoring onto an
+  already-initialized cluster (dropping the role/database the restoring
+  session is itself connected as, re-creating roles Supabase's image
+  already created via its own init and marks "reserved") - stopping on
+  the first one aborts almost immediately, before the real data restore
+  even starts. Verified end-to-end in an isolated throwaway container
+  (never against this repo's own live data): backed up the real running
+  stack, restored it into a fresh `supabase/postgres` container, and
+  confirmed the actual tables/rows landed correctly despite ~90 lines of
+  expected "already exists" noise in the output.
+
+Every subcommand above writes an entry to `audit_log` too (`table_name =
+"admin_cli"`, visible in the **Audit log** admin page like everything
+else) - `changed_by` is whoever ran the host [`nexa`](./nexa) wrapper
+(reads `$USER`, passed through via `docker compose exec -e`), or
+`nexa-cli` if you called `docker compose exec portal nexa` directly.
 
 Standalone by design - `cli/nexa.mjs` doesn't import the Nitro-coupled
 `server/utils/*` files (they rely on `useRuntimeConfig()`/`createError()`,
@@ -389,11 +423,27 @@ Every row change to any table in the `public` schema (except the portal's
 own `portal_*` bookkeeping tables) is logged to `audit_log` - who changed
 what, when, and the old/new row data - regardless of whether the change
 came from Import Excel or directly from an editor poking around in the
-embedded Studio. Admins can browse it at **Audit log** in the portal
-header (`portal/pages/admin/audit.vue`) - filterable by table, operation
-(insert/update/delete), who made the change, a date range, and free-text
-search across the before/after row data, with pagination (`GET
-/api/admin/audit`, `portal/server/api/admin/audit.get.ts`). The free-text
+embedded Studio. The same table also carries discrete application events
+that aren't a row change at all: every login attempt (success and
+failure), 2FA enrollment/verification (success and failure), logout,
+recovery-code use, registration submitted/2FA-confirmed/approved/rejected
+(`table_name = "auth"`, written directly by `portal/server/api/auth/*.ts`
+and the registration-approval endpoints via
+`portal/server/utils/auth-audit.ts` - includes the caller's IP), and every
+`nexa` CLI admin action (`table_name = "admin_cli"` - see "Admin CLI"
+above). Failed logins are logged under the *attempted* username, not a
+resolved user, so credential-stuffing/brute-force attempts against
+nonexistent accounts show up too, not just ones against real accounts.
+
+Admins can browse all of it at **Audit log** in the portal header
+(`portal/pages/admin/audit.vue`) - filterable by table, operation
+(insert/update/delete - the auth/CLI event names like `LOGIN_FAILURE` or
+`USER_2FA_RESET` aren't in that checkbox list, but still show up whenever
+no operation filter is applied, and are reachable by filtering to the
+`auth`/`admin_cli` table or by search), who made the change, a date
+range, and free-text search across the before/after row data, with
+pagination (`GET /api/admin/audit`, `portal/server/api/admin/audit.get.ts`).
+The free-text
 search runs through a `search_audit_log(term)` database function
 (`public.search_audit_log`, defined in both `volumes/db/audit.sql` and
 `portal/server/utils/audit-store.ts`) called via PostgREST's `/rpc/`
@@ -484,6 +534,8 @@ of seconds.
 docker-compose.yml       Full stack definition
 .env.example              All configuration - copy to .env
 scripts/generate-keys.sh  Generates JWT/DB secrets into .env
+nexa                      Host wrapper for the nexa admin CLI - see "Admin CLI"
+backups/                  `nexa db backup`/`restore` dump files (gitignored)
 volumes/                  Supabase self-hosting config (Kong routes, DB init SQL, ...)
 portal/                   Nuxt 3 portal app (Dockerfile included)
 ```

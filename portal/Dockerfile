@@ -10,6 +10,9 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=3000
+# postgresql17-client (matches supabase/postgres:17.x in docker-compose.yml)
+# provides pg_dumpall/psql for `nexa db backup`/`restore`.
+RUN apk add --no-cache postgresql17-client
 COPY --from=build /app/.output ./.output
 # The nexa CLI (cli/nexa.mjs) is a standalone script, not part of Nitro's
 # bundled server output, so it needs its own deps (otpauth, qrcode-terminal)

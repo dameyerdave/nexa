@@ -28,3 +28,8 @@ roles-api/db.sqlite3
 
 # OS
 .DS_Store
+
+# nexa db backup/restore dump files (see docker-compose.yml's portal
+# service volumes and portal/cli/nexa.mjs)
+/backups/*
+!/backups/.gitkeep

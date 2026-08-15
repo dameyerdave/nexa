@@ -59,6 +59,29 @@ services:
       NUXT_METABASE_ADMIN_EMAIL: ${METABASE_ADMIN_EMAIL}
       NUXT_METABASE_ADMIN_PASSWORD: ${METABASE_ADMIN_PASSWORD}
       NUXT_METABASE_EDITOR_GROUP: ${METABASE_EDITOR_GROUP:-Editors}
+      # Standard libpq env vars - read automatically by pg_dumpall/psql with
+      # no explicit flags needed, for `nexa db backup`/`restore`
+      # (portal/cli/nexa.mjs). Whole-cluster dump/restore (not just the
+      # `postgres` database), since `metabase` is a separate database in
+      # the same cluster (see volumes/db/metabase.sql).
+      #
+      # supabase_admin, not postgres - confirmed live that `postgres` is
+      # NOT actually a superuser on Supabase's hardened image (rolsuper=f;
+      # supabase_admin is the true superuser, same POSTGRES_PASSWORD).
+      # Connecting as `postgres` for a full-cluster restore cascades into
+      # failures throughout (schema objects owned by supabase_admin can't
+      # be restored, role membership grants get rejected as touching
+      # "reserved roles", etc.) since it lacks the privileges even a
+      # superuser normally has for exactly this kind of operation.
+      PGHOST: db
+      PGPORT: ${POSTGRES_PORT}
+      PGUSER: supabase_admin
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      # Where `nexa db backup`/`restore` read and write dump files -
+      # persisted on the host so backups survive the container being
+      # recreated.
+      - ./backups:/backups
     depends_on:
       kong:
         condition: service_healthy
