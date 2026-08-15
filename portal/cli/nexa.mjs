@@ -307,12 +307,22 @@ async function cmdUser2faGet(args) {
   await auditLog(isNew ? "USER_2FA_ENROLL" : "USER_2FA_VIEW", { email });
 }
 
+/** Confines backup/restore filenames to BACKUP_DIR - no absolute paths, no
+ * "../" escaping it - since this ultimately controls a filesystem write
+ * (backup) or feeds a whole SQL script straight into psql (restore), and
+ * there's no legitimate reason a filename here should point anywhere
+ * else. Rejects rather than silently rewriting, so a mistyped path fails
+ * loudly instead of quietly landing somewhere unexpected. */
 function resolveBackupPath(filename) {
   if (!filename) {
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     filename = `nexa-${stamp}.sql`;
   }
-  return path.isAbsolute(filename) ? filename : path.join(BACKUP_DIR, filename);
+  const resolved = path.resolve(BACKUP_DIR, filename);
+  if (resolved !== BACKUP_DIR && !resolved.startsWith(BACKUP_DIR + path.sep)) {
+    die(`Refusing to use "${filename}" - it must resolve inside ${BACKUP_DIR}, not escape it.`);
+  }
+  return resolved;
 }
 
 /** Prompts on a real terminal; on a non-interactive one (e.g. piped, or

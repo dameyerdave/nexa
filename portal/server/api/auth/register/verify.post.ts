@@ -13,12 +13,15 @@ export default defineEventHandler(async (event) => {
   if (registration.totp_enrolled) {
     throw createError({ statusCode: 400, statusMessage: "Two-factor authentication is already confirmed" });
   }
+  checkRateLimit(registration.email);
   if (!registration.totp_secret || !verifyTotpCode(registration.totp_secret, code)) {
+    recordFailure(registration.email);
     throw createError({
       statusCode: 401,
       statusMessage: "Incorrect code - check your authenticator app and try again",
     });
   }
+  recordSuccess(registration.email);
 
   const recoveryCodes = generateRecoveryCodes();
   await commitRegistrationTotp(registrationId, recoveryCodes.map(hashRecoveryCode));

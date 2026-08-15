@@ -6,15 +6,18 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: "Username and password are required" });
   }
   const ip = getRequestIP(event, { xForwardedFor: true });
+  checkRateLimit(username);
 
   const result = await metabaseLogin(username, password);
   if (!result) {
+    recordFailure(username);
     // Logged under the attempted username, not a resolved user - failed
     // logins (including for accounts that don't exist) are exactly the
     // signal a brute-force/credential-stuffing attempt would show up as.
     await auditEvent("LOGIN_FAILURE", username, { reason: "invalid credentials", ip });
     throw createError({ statusCode: 401, statusMessage: "Incorrect username or password" });
   }
+  recordSuccess(username);
 
   const enrolled = await hasTotpEnrolled(result.userId);
   const loginId = savePendingLogin({ userId: result.userId, email: result.email, setCookies: result.setCookies });

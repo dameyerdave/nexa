@@ -12,10 +12,12 @@ export default defineEventHandler(async (event) => {
 
   let recoveryCodes: string[] | undefined;
   const ip = getRequestIP(event, { xForwardedFor: true });
+  checkRateLimit(pending.email);
 
   if (body?.recoveryCode) {
     const ok = await redeemRecoveryCode(pending.userId, body.recoveryCode);
     if (!ok) {
+      recordFailure(pending.email);
       await auditEvent("LOGIN_2FA_FAILURE", pending.email, { method: "recovery_code", ip });
       throw createError({ statusCode: 401, statusMessage: "Invalid or already-used recovery code" });
     }
@@ -30,6 +32,7 @@ export default defineEventHandler(async (event) => {
       // First-time enrollment - the QR code isn't committed to storage
       // until proven scannable, so a bad scan can't lock the user out.
       if (!verifyTotpCode(pending.pendingTotpSecret, code)) {
+        recordFailure(pending.email);
         await auditEvent("LOGIN_2FA_ENROLL_FAILURE", pending.email, { ip });
         throw createError({
           statusCode: 401,
@@ -42,11 +45,13 @@ export default defineEventHandler(async (event) => {
     } else {
       const secret = await getTotpSecret(pending.userId);
       if (!secret || !verifyTotpCode(secret, code)) {
+        recordFailure(pending.email);
         await auditEvent("LOGIN_2FA_FAILURE", pending.email, { method: "totp", ip });
         throw createError({ statusCode: 401, statusMessage: "Incorrect code" });
       }
     }
   }
+  recordSuccess(pending.email);
 
   for (const cookie of pending.setCookies) {
     appendResponseHeader(event, "set-cookie", cookie);

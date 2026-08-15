@@ -259,6 +259,14 @@ survive a portal restart mid-flow, or work correctly if `portal` is ever
 scaled beyond one replica. Pending *registrations*, unlike pending logins,
 are durable (a Postgres row) and unaffected by this.
 
+**Rate limiting:** password login, 2FA verification (both sign-in and
+registration), and recovery-code use are all throttled per account
+(`portal/server/utils/login-rate-limit.ts`) - 5 failures within 15 minutes
+blocks further attempts on that account for 15 minutes, reset on success.
+Found missing entirely in review and added - a 6-digit TOTP code is only
+1,000,000 combinations, so leaving it unthrottled meant nothing stood
+between a script and brute-forcing it.
+
 ### Admin dashboard
 
 Whoever created the first Metabase account during setup (Metabase's setup
